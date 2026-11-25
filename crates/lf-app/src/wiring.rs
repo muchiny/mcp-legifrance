@@ -1,7 +1,7 @@
 //! Câblage : assemble les adapters en un `LegalService`, puis le sert sur stdio (02 §8.4).
 //!
-//! La composition de production est `LegalService<AnyCorpus, AppAudit, SystemClock, AnyDoctrine>`
-//! ([`AppService`]) :
+//! La composition de production est
+//! `LegalService<AnyCorpus, AppAudit, SystemClock, AnyDoctrine, AnyGuidance>` ([`AppService`]) :
 //!
 //! - [`AnyCorpus`] choisit la source des textes à l'exécution (02 §8.5), sans `Box<dyn>` : PISTE
 //!   derrière le cache (défaut), l'index local DILA si `LF_DILA_DIR` le demande (feature `dila`),
@@ -21,7 +21,10 @@
 //!   ou rien. `BofipDoctrine::new` ne fait aucune E/S (le client HTTP naît au premier appel), et
 //!   la source ne dépend pas de PISTE : elle sert même sans identifiants. Coupée (`LF_BOFIP`,
 //!   mode hors ligne), aucun client n'est construit et chaque outil du BOFiP répond
-//!   `[config_error]`, sans réseau.
+//!   `[config_error]`, sans réseau ;
+//! - [`AnyGuidance`] est la source des fiches pratiques (jalon MS) : les archives du jour de
+//!   Service-Public, ou rien, mêmes règles (`LF_SERVICE_PUBLIC`). `ServicePublicGuidance::new` ne
+//!   fait aucune E/S : rien n'est téléchargé avant le premier appel d'un de ses outils.
 //!
 //! # Source locale DILA (M9)
 //!
@@ -58,12 +61,14 @@ use lf_adapter_cache::{CachePolicy, CachedCorpus};
 use lf_adapter_dila::DilaCorpus;
 use lf_adapter_mcp::{LegifranceServer, serve_stdio};
 use lf_adapter_piste::PisteCorpus;
+use lf_adapter_service_public::ServicePublicGuidance;
 use lf_application::{
     audited::AuditPolicy,
     budget::ResponseBudget,
     ports::{
         ArticleAt, AuditError, AuditErrorKind, AuditLog, AuditRecord, ConfigKind, CorpusError,
-        DoctrineError, LegalCorpus, PisteEnvironment, TaxDoctrine,
+        DoctrineError, GuidanceError, GuidanceFound, GuidanceRead, LegalCorpus, PisteEnvironment,
+        PublicGuidance, TaxDoctrine,
     },
     service::{LegalService, ServiceSettings},
 };
@@ -74,6 +79,7 @@ use lf_domain::{
         Act, ArticleText, ArticleVersion, CodeListing, CompanyAgreement, Convention, Decision,
         Deliberation, RelatedLinks, SearchHit, SearchPage,
     },
+    guidance::{Audience, GuidanceQuery, SheetId},
     id::{AccoTextId, ArticleId, CnilTextId, DecisionId, KaliTextId, LegiTextId},
     search::{NumberQuery, SearchQuery},
 };
@@ -81,15 +87,16 @@ use tokio_util::sync::CancellationToken;
 
 use crate::{
     clock::SystemClock,
-    config::{AppConfig, AuditSettings, BofipSource, CorpusSource},
+    config::{AppConfig, AuditSettings, BofipSource, CorpusSource, ServicePublicSource},
 };
 
 /// Le corpus de production : PISTE derrière le cache, ou l'index local DILA (02 §8.5).
 pub(crate) type AppCorpus = AnyCorpus;
 
-/// La façade de production : corpus, journal d'audit, horloge et source de doctrine de
-/// [`build`].
-pub(crate) type AppService = LegalService<AppCorpus, AppAudit, SystemClock, AnyDoctrine>;
+/// La façade de production : corpus, journal d'audit, horloge, source de doctrine et source des
+/// fiches pratiques de [`build`].
+pub(crate) type AppService =
+    LegalService<AppCorpus, AppAudit, SystemClock, AnyDoctrine, AnyGuidance>;
 
 /// Ce que le modèle lit quand l'index local DILA demandé ne peut pas être ouvert : ni chemin ni
 /// cause, que le journal de diagnostic porte.
@@ -287,6 +294,44 @@ pub(crate) fn doctrine_for(config: &AppConfig) -> AnyDoctrine {
     }
 }
 
+/// Source des fiches pratiques, choisie une fois au démarrage : les archives du jour de
+/// Service-Public, ou rien. Un enum de dispatch statique, comme [`AnyDoctrine`].
+pub(crate) enum AnyGuidance {
+    /// Les archives du jour de la DILA (`lecomarquage.service-public.gouv.fr`), gardées en
+    /// mémoire.
+    ServicePublic(ServicePublicGuidance<SystemClock>),
+    /// Source coupée : chaque opération répond [`GuidanceError::Disabled`], que le modèle lit en
+    /// `[config_error]`, sans client ni réseau.
+    Off,
+}
+
+impl PublicGuidance for AnyGuidance {
+    async fn search(&self, query: &GuidanceQuery) -> Result<GuidanceFound, GuidanceError> {
+        match self {
+            Self::ServicePublic(archives) => archives.search(query).await,
+            Self::Off => Err(GuidanceError::Disabled),
+        }
+    }
+
+    async fn get(&self, audience: Audience, id: &SheetId) -> Result<GuidanceRead, GuidanceError> {
+        match self {
+            Self::ServicePublic(archives) => archives.get(audience, id).await,
+            Self::Off => Err(GuidanceError::Disabled),
+        }
+    }
+}
+
+/// La source des fiches que la configuration demande. Coupée, aucun client n'est construit ;
+/// active, la construction ne fait aucune E/S.
+pub(crate) fn guidance_for(config: &AppConfig) -> AnyGuidance {
+    match &config.service_public {
+        ServicePublicSource::On(settings) => {
+            AnyGuidance::ServicePublic(ServicePublicGuidance::new(settings, SystemClock))
+        }
+        ServicePublicSource::Off(_) => AnyGuidance::Off,
+    }
+}
+
 /// Journal d'audit du processus : le fichier JSONL, ou l'impossibilité d'en avoir un.
 ///
 /// Une configuration d'audit inutilisable (`LF_AUDIT_DIR` relatif, répertoire personnel ou de
@@ -366,6 +411,7 @@ fn audit_environment(config: &AppConfig) -> PisteEnvironment {
 pub(crate) fn build(config: &AppConfig) -> AppService {
     tracing::info!(source = config.source.label(), "corpus source");
     tracing::info!(source = config.bofip.label(), "tax doctrine source");
+    tracing::info!(source = config.service_public.label(), "public guidance source");
     LegalService::new(
         corpus_for(config),
         AppAudit::open(&config.audit),
@@ -373,6 +419,7 @@ pub(crate) fn build(config: &AppConfig) -> AppService {
         service_settings(config),
     )
     .with_doctrine(doctrine_for(config))
+    .with_guidance(guidance_for(config))
 }
 
 /// Commande `serve` : sert le serveur MCP sur stdin et stdout jusqu'à l'EOF de stdin ou jusqu'à
@@ -404,15 +451,20 @@ mod tests {
     use lf_application::{
         audited::AuditMode,
         error::ErrorCode,
-        input::{CanonicalInput, CoverageInput, GetBofipInput, SearchBofipInput, ToolCall},
-        messages::DOCTRINE_DISABLED_MESSAGE,
+        input::{
+            CanonicalInput, CoverageInput, GetBofipInput, GetServicePublicInput, SearchBofipInput,
+            SearchServicePublicInput, ToolCall,
+        },
+        messages::{DOCTRINE_DISABLED_MESSAGE, GUIDANCE_DISABLED_MESSAGE},
+        output::coverage::CoverageOutput,
         ports::AuditStatus,
-        service::DoctrineSource,
+        service::{DoctrineSource, GuidanceSource},
         tools::ToolName,
     };
     use lf_domain::{
         doctrine::{DoctrineTerms, KindFilter},
         fond::Fond,
+        guidance::{AudienceFilter, GuidanceTerms},
         search::{MatchMode, NumberKind, NumberValue, PageSize, QueryText},
     };
 
@@ -688,9 +740,6 @@ mod tests {
             input: Ok(GetBofipInput { id: Some(BOI.to_owned()), ..GetBofipInput::default() }),
             canonical: CanonicalInput::new(r#"{"id":"BOI-ENR-DMTG-10-50-20"}"#),
         };
-        let last_gap = |output: &lf_application::output::coverage::CoverageOutput| {
-            output.coverage.known_gaps().last().map(|gap| gap.id.clone())
-        };
         for pair in BOFIP_OFF {
             let dir = tempfile::tempdir().expect("a temporary directory");
             let service = build(&config_with(&[audit_dir(dir.path()), pair]));
@@ -701,12 +750,106 @@ mod tests {
             assert_eq!(error.code(), Some(ErrorCode::ConfigError), "{pair:?}");
             assert_eq!(error.message(), DOCTRINE_DISABLED_MESSAGE, "{pair:?}");
             let coverage = service.coverage(coverage_call(), pending()).await.unwrap();
-            assert_eq!(last_gap(&coverage).as_deref(), Some("FR-107"), "{pair:?}");
+            assert_eq!(gaps_of(&coverage, "BOFIP"), ["FR-107"], "{pair:?}");
         }
         let dir = tempfile::tempdir().expect("a temporary directory");
         let service = build(&config_with(&[audit_dir(dir.path())]));
         let coverage = service.coverage(coverage_call(), pending()).await.unwrap();
-        assert_eq!(last_gap(&coverage).as_deref(), Some("FR-106"));
+        assert_eq!(gaps_of(&coverage, "BOFIP"), ["FR-106"]);
+    }
+
+    /// Les lacunes de `fr_coverage` du fonds `fond`, dans l'ordre.
+    fn gaps_of(output: &CoverageOutput, fond: &str) -> Vec<String> {
+        output
+            .coverage
+            .known_gaps()
+            .iter()
+            .filter(|gap| gap.family == fond)
+            .map(|gap| gap.id.clone())
+            .collect()
+    }
+
+    /// Les trois façons de couper la source des fiches : la demande, une valeur invalide, le mode
+    /// hors ligne (ici avec un `LF_DILA_DIR` inutilisable).
+    const SERVICE_PUBLIC_OFF: [(&str, &str); 3] = [
+        ("LF_SERVICE_PUBLIC", "off"),
+        ("LF_SERVICE_PUBLIC", "false"),
+        ("LF_DILA_DIR", "relative/index"),
+    ];
+
+    fn guidance_query() -> GuidanceQuery {
+        GuidanceQuery {
+            terms: GuidanceTerms::parse("logement").unwrap(),
+            audience: AudienceFilter::Particuliers,
+            page: NonZeroU32::MIN,
+            page_size: PageSize::new(10).unwrap(),
+        }
+    }
+
+    /// Par défaut, la source des fiches est Service-Public : la construire ne fait aucune E/S, et
+    /// elle ne dépend pas des identifiants PISTE.
+    #[test]
+    fn service_public_is_the_guidance_source_by_default() {
+        assert!(matches!(guidance_for(&config_with(&[])), AnyGuidance::ServicePublic(_)));
+        let bare = load(&MapEnv::new(&[])).config;
+        assert!(matches!(guidance_for(&bare), AnyGuidance::ServicePublic(_)));
+        assert_eq!(service_settings(&bare).configuration.guidance, GuidanceSource::Active);
+        // `LF_SERVICE_PUBLIC=on` rétablit la source en mode hors ligne.
+        let forced = config_with(&[("LF_DILA_DIR", "relative/index"), ("LF_SERVICE_PUBLIC", "on")]);
+        assert!(matches!(guidance_for(&forced), AnyGuidance::ServicePublic(_)));
+    }
+
+    /// Source coupée : les deux opérations répondent `Disabled`, sans client ni réseau.
+    #[tokio::test]
+    async fn a_service_public_source_turned_off_answers_disabled_on_both_operations() {
+        for pair in SERVICE_PUBLIC_OFF {
+            let config = config_with(&[pair]);
+            assert_eq!(service_settings(&config).configuration.guidance, GuidanceSource::Off);
+            let guidance = guidance_for(&config);
+            assert!(matches!(guidance, AnyGuidance::Off), "{pair:?}");
+            let found = guidance.search(&guidance_query()).await.map(|found| found.files);
+            assert_eq!(found, Err(GuidanceError::Disabled), "{pair:?}");
+            let id = SheetId::parse("F1437").unwrap();
+            let read = guidance.get(Audience::Particuliers, &id).await.map(|read| read.file);
+            assert_eq!(read, Err(GuidanceError::Disabled), "{pair:?}");
+        }
+    }
+
+    /// La façade assemblée : source coupée, les deux outils de Service-Public répondent
+    /// `[config_error]` avec le texte fixe, et `fr_coverage` rend la lacune FR-109 ; par défaut,
+    /// FR-108.
+    #[tokio::test]
+    async fn the_built_service_serves_the_service_public_tools_and_reports_the_source_state() {
+        let search = || ToolCall {
+            input: Ok(SearchServicePublicInput {
+                query: Some("logement".to_owned()),
+                ..SearchServicePublicInput::default()
+            }),
+            canonical: CanonicalInput::new(r#"{"query":"logement"}"#),
+        };
+        let get = || ToolCall {
+            input: Ok(GetServicePublicInput {
+                id: Some("F1437".to_owned()),
+                ..GetServicePublicInput::default()
+            }),
+            canonical: CanonicalInput::new(r#"{"id":"F1437"}"#),
+        };
+        for pair in SERVICE_PUBLIC_OFF {
+            let dir = tempfile::tempdir().expect("a temporary directory");
+            let service = build(&config_with(&[audit_dir(dir.path()), pair]));
+            let error = service.search_service_public(search(), pending()).await.unwrap_err();
+            assert_eq!(error.code(), Some(ErrorCode::ConfigError), "{pair:?}");
+            assert_eq!(error.message(), GUIDANCE_DISABLED_MESSAGE, "{pair:?}");
+            let error = service.get_service_public(get(), pending()).await.unwrap_err();
+            assert_eq!(error.code(), Some(ErrorCode::ConfigError), "{pair:?}");
+            assert_eq!(error.message(), GUIDANCE_DISABLED_MESSAGE, "{pair:?}");
+            let coverage = service.coverage(coverage_call(), pending()).await.unwrap();
+            assert_eq!(gaps_of(&coverage, "SERVICE_PUBLIC"), ["FR-109"], "{pair:?}");
+        }
+        let dir = tempfile::tempdir().expect("a temporary directory");
+        let service = build(&config_with(&[audit_dir(dir.path())]));
+        let coverage = service.coverage(coverage_call(), pending()).await.unwrap();
+        assert_eq!(gaps_of(&coverage, "SERVICE_PUBLIC"), ["FR-108"]);
     }
 
     #[test]
@@ -813,10 +956,11 @@ mod tests {
         assert_eq!(output.environment, PisteEnvironment::Production);
         assert_eq!(output.configuration.problems, Vec::<String>::new());
         assert!(output.configuration.local_snapshot);
-        // La lacune de l'instantané, puis celle du BOFiP, coupé d'office en mode hors ligne.
+        // La lacune de l'instantané, puis celles du BOFiP et de Service-Public, coupés d'office en
+        // mode hors ligne.
         let gaps: Vec<&str> =
             output.coverage.known_gaps().iter().map(|gap| gap.id.as_str()).collect();
-        assert_eq!(gaps[gaps.len() - 2..], ["FR-105", "FR-107"]);
+        assert_eq!(gaps[gaps.len() - 3..], ["FR-105", "FR-107", "FR-109"]);
         let families: Vec<&str> =
             output.coverage.families().iter().map(|family| family.name.as_str()).collect();
         assert_eq!(families, ["LODA", "CODE"]);

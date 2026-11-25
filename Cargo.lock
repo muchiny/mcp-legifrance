@@ -1689,6 +1689,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "lf-adapter-service-public"
+version = "1.4.1"
+dependencies = [
+ "chrono",
+ "flate2",
+ "lf-application",
+ "lf-domain",
+ "pretty_assertions",
+ "proptest",
+ "quick-xml",
+ "reqwest",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "wiremock",
+]
+
+[[package]]
 name = "lf-application"
 version = "1.4.1"
 dependencies = [
@@ -1809,6 +1828,7 @@ dependencies = [
  "lf-adapter-dila",
  "lf-adapter-mcp",
  "lf-adapter-piste",
+ "lf-adapter-service-public",
  "lf-application",
  "lf-domain",
  "secrecy",

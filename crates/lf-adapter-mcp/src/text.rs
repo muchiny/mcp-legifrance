@@ -4,7 +4,7 @@
 //! prompts (français) rejoignent ce module avec leurs tranches.
 //!
 //! Les instructions sont servies telles quelles dans `server/discover` (ère moderne) et dans le
-//! résultat d'`initialize` (ère legacy) : le même texte, en anglais, au plus 3 700 caractères,
+//! résultat d'`initialize` (ère legacy) : le même texte, en anglais, au plus 4 000 caractères,
 //! attribution des données comprise. Une surface plus riche cite plus d'outils : seules les
 //! lignes de la section « Workflow » changent (05 §4.2). Le texte ne dépend jamais de
 //! l'environnement (05 §4.3, règle 5).
@@ -17,11 +17,12 @@ pub enum Surface {
     /// v0.2 : plus la vérification et la résolution de citations (M6).
     V02,
     /// v0.3 : plus la recherche multi-fonds, les prompts et les ressources (M7) ; depuis le jalon
-    /// MB, plus les deux outils du BOFiP (pas de surface `V04` : celle-ci, seule servie, s'étend).
+    /// MB, plus les deux outils du BOFiP, et depuis le jalon MS, les deux de Service-Public (pas
+    /// de surface `V04` : celle-ci, seule servie, s'étend).
     V03,
 }
 
-/// Surface servie par ce binaire : la complète, qui annonce les quinze outils de
+/// Surface servie par ce binaire : la complète, qui annonce les dix-sept outils de
 /// `ToolName::ALL`, les resources, les prompts et les complétions.
 pub const SURFACE: Surface = Surface::V03;
 
@@ -37,10 +38,11 @@ impl Surface {
 }
 
 /// Plafond des instructions, en caractères Unicode (00 §6, 05 §4.3 règle 2 ; relevé de 3 500 à
-/// 3 700 par AM-93 pour la ligne du BOFiP). Éprouvé par `instructions_fit_budget` et, sur le
+/// 3 700 par AM-93 pour la ligne du BOFiP, puis à 4 000 par ADR-0033, décision 14, pour celle de
+/// Service-Public : Claude Code coupe à 4 096). Éprouvé par `instructions_fit_budget` et, sur le
 /// binaire, par `cargo xtask instructions-size`.
 #[cfg(test)]
-pub(crate) const INSTRUCTIONS_BUDGET_CHARS: usize = 3_700;
+pub(crate) const INSTRUCTIONS_BUDGET_CHARS: usize = 4_000;
 
 // Les trois textes ne diffèrent que par les lignes 1, 3 et 4 de « Workflow » : les morceaux communs
 // sont des macros qui se développent en littéraux, que `concat!` assemble à la compilation.
@@ -121,6 +123,16 @@ macro_rules! tax_doctrine {
     };
 }
 
+/// Ligne 6 de « Workflow » à la v0.3, depuis le jalon MS (ADR-0033, 05 §4.2) : les deux outils de
+/// Service-Public, sans adresse (seuls les liens vers Légifrance sont admis dans ce texte).
+macro_rules! public_guidance {
+    () => {
+        "Public guidance: `fr_search_service_public` then `fr_get_service_public` read the \
+         Service-Public practical sheets (DILA): plain-language administrative guidance, not the \
+         law; a sheet lists in `legal_references` the Legifrance texts it relies on."
+    };
+}
+
 /// Sections « Long texts », « Hard rules » et « Errors », les mêmes dans les trois versions.
 /// Pas de saut de ligne final.
 macro_rules! tail {
@@ -190,8 +202,9 @@ pub(crate) const INSTRUCTIONS_V02: &str = concat!(
     tail!()
 );
 
-/// Instructions de la surface v0.3 : 15 outils cités (05 §4.1 et §4.2). Depuis le jalon MB, une
-/// ligne 5 nomme les deux outils du BOFiP ; les textes des v0.1 et v0.2 n'ont pas bougé.
+/// Instructions de la surface v0.3 : 17 outils cités (05 §4.1 et §4.2). Depuis le jalon MB, une
+/// ligne 5 nomme les deux outils du BOFiP, et depuis le jalon MS, une ligne 6 ceux de
+/// Service-Public ; les textes des v0.1 et v0.2 n'ont pas bougé.
 pub(crate) const INSTRUCTIONS_V03: &str = concat!(
     head!(),
     "1. Find: `fr_search` searches one fond, paged with `page` and `has_more`; \
@@ -204,6 +217,8 @@ pub(crate) const INSTRUCTIONS_V03: &str = concat!(
     limits!(),
     "\n5. ",
     tax_doctrine!(),
+    "\n6. ",
+    public_guidance!(),
     "\n",
     tail!()
 );
@@ -220,18 +235,20 @@ mod tests {
     /// Les trois surfaces, de la plus petite à la plus riche.
     const SURFACES: [Surface; 3] = [Surface::V01, Surface::V02, Surface::V03];
 
-    /// Outils cités, par surface : les 8 de la v0.1, puis M6, puis M7 et les deux du BOFiP
-    /// (05 §4.2).
+    /// Outils cités, par surface : les 8 de la v0.1, puis M6, puis M7, les deux du BOFiP et les
+    /// deux de Service-Public (05 §4.2).
     fn cited_tools(surface: Surface) -> BTreeSet<&'static str> {
         let v01 = ToolName::ALL[..8].iter().map(|tool| tool.as_str());
         let m6 = [ToolName::FR_VERIFY_CITATIONS, ToolName::FR_RESOLVE].map(ToolName::as_str);
         let m7 = [ToolName::FR_GET_RELATED, ToolName::FR_DIFF_ARTICLE, ToolName::FR_SEARCH_ALL]
             .map(ToolName::as_str);
         let mb = [ToolName::FR_SEARCH_BOFIP, ToolName::FR_GET_BOFIP].map(ToolName::as_str);
+        let ms = [ToolName::FR_SEARCH_SERVICE_PUBLIC, ToolName::FR_GET_SERVICE_PUBLIC]
+            .map(ToolName::as_str);
         match surface {
             Surface::V01 => v01.collect(),
             Surface::V02 => v01.chain(m6).collect(),
-            Surface::V03 => v01.chain(m6).chain(m7).chain(mb).collect(),
+            Surface::V03 => v01.chain(m6).chain(m7).chain(mb).chain(ms).collect(),
         }
     }
 
@@ -270,7 +287,7 @@ mod tests {
             let size = surface.instructions().chars().count();
             assert!(size <= INSTRUCTIONS_BUDGET_CHARS, "{surface:?} : {size} caractères");
         }
-        assert_eq!(INSTRUCTIONS_BUDGET_CHARS, 3_700);
+        assert_eq!(INSTRUCTIONS_BUDGET_CHARS, 4_000);
     }
 
     #[test]
@@ -284,8 +301,9 @@ mod tests {
             (text.chars().count(), text.len())
         });
         // Jalon MB (AM-93) : la v0.3 gagne la ligne du BOFiP, 189 caractères avec son numéro ;
-        // les v0.1 et v0.2 sont identiques à l'octet (G3).
-        assert_eq!(measured, [(3_100, 3_108), (3_301, 3_309), (3_688, 3_696)]);
+        // jalon MS (ADR-0033) : celle de Service-Public, 249 avec son saut de ligne, toute en
+        // ASCII ; les v0.1 et v0.2 sont identiques à l'octet (G1 bis).
+        assert_eq!(measured, [(3_100, 3_108), (3_301, 3_309), (3_937, 3_945)]);
     }
 
     /// D-12 : glossaire de `etat`, résumé jamais complet, nuance de « verbatim » pour les tableaux.
@@ -341,7 +359,7 @@ mod tests {
             assert_eq!(cited, cited_tools(surface), "{surface:?}");
         }
         let counts = SURFACES.map(|surface| cited_tools(surface).len());
-        assert_eq!(counts, [8, 10, 15]);
+        assert_eq!(counts, [8, 10, 17]);
     }
 
     #[test]
@@ -384,6 +402,12 @@ mod tests {
                 .into_iter()
                 .filter(|token| !token.starts_with("fr_") && !token.starts_with('['))
                 .collect();
+            // La ligne de Service-Public, à la v0.3 seulement, nomme le champ de sortie de
+            // `fr_get_service_public` qui donne les textes cités.
+            let mut expected = expected.clone();
+            if surface == Surface::V03 {
+                expected.insert("legal_references");
+            }
             assert_eq!(cited, expected, "{surface:?}");
         }
     }

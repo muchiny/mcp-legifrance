@@ -13,12 +13,15 @@ Ce qu'il fait en plus de chercher et de lire un texte :
 - **Sans intermédiaire.** Le serveur tourne sur votre machine et parle à PISTE avec vos propres identifiants : aucun service tiers ne voit vos requêtes (voir [Hôtes contactés](#hôtes-contactés)).
 - **Hors ligne, en option.** Les codes, lois et décrets peuvent être lus dans une copie locale, sans compte PISTE ni réseau (voir [Mode hors ligne](#mode-hors-ligne-index-local-dila)).
 - **Doctrine fiscale (BOFiP).** `fr_search_bofip` et `fr_get_bofip` lisent le Bulletin officiel des finances publiques, c'est-à-dire la lecture que l'administration fiscale fait de la loi, sur le portail de données ouvertes de la DGFiP, sans compte (voir [Doctrine fiscale](#doctrine-fiscale-bofip)).
+- **Fiches pratiques (Service-Public).** `fr_search_service_public` et `fr_get_service_public` lisent les fiches de Service-Public.gouv.fr et d'Entreprendre.Service-Public.gouv.fr, le guide de l'administration sur les droits et les démarches, sans compte et sans envoyer vos mots de recherche (voir [Fiches pratiques](#fiches-pratiques-service-public)).
 
 > **Binaires non signés.** Les binaires et le bundle MCPB ne sont signés par aucun certificat (ni Authenticode sous Windows, ni notarisation sous macOS). Sous Windows, Smart App Control peut bloquer l'exécutable : ne le désactivez pas, utilisez l'image Docker ou WSL. Sous macOS, Gatekeeper peut demander une confirmation. Les sommes SHA-256 et les attestations de provenance GitHub permettent de contrôler ce que vous installez (voir [Vérifier un téléchargement](#vérifier-un-téléchargement)).
 >
 > **Statut.** Cette page décrit la version **1.4.1**, qui corrige la comparaison des versions d'un article de loi qui n'en a qu'une et la recherche d'un numéro de RG écrit avec un zéro de tête (voir le [CHANGELOG](CHANGELOG.md)). Depuis la 1.4.0, la lecture du BOFiP liste les articles de code que cite une publication, pour vérifier qu'elle est à jour. La 1.2.0 n'a pas été publiée : la 1.3.0 la contient. Les commandes d'installation citent l'étiquette `v1.4.1` : elles s'appliquent dès que sa release figure sur la [page des releases](https://github.com/muchiny/mcp-legifrance/releases) ; pour une autre version publiée, remplacez le numéro. La première version publiée est la 1.0.0 (2026-10-31).
 >
 > **Depuis la 1.3.0.** Les deux outils du BOFiP (`fr_search_bofip`, `fr_get_bofip`) et la variable `LF_BOFIP` décrits ci-dessous arrivent avec la 1.3.0 (voir le [CHANGELOG](CHANGELOG.md)). Un binaire plus ancien sert treize outils.
+>
+> **Pas encore publié.** Les deux outils de Service-Public (`fr_search_service_public`, `fr_get_service_public`) et la variable `LF_SERVICE_PUBLIC` décrits ci-dessous ne sont **pas** dans la 1.4.1 : ils sont dans le code du dépôt et arriveront avec la version suivante (rubrique `[Unreleased]` du [CHANGELOG](CHANGELOG.md)). Un binaire 1.4.1 sert quinze outils.
 
 ## Sommaire
 
@@ -37,7 +40,7 @@ Ce qu'il fait en plus de chercher et de lire un texte :
 
 ## Ce que fait le serveur
 
-Quinze outils, tous en lecture seule (`readOnlyHint`), qui interrogent le réseau (`openWorldHint`) : treize lisent Légifrance, deux lisent le BOFiP.
+Dix-sept outils, tous en lecture seule (`readOnlyHint`), qui interrogent le réseau (`openWorldHint`) : treize lisent Légifrance, deux le BOFiP, deux les fiches pratiques de Service-Public.
 
 | Outil | Rôle |
 |---|---|
@@ -56,6 +59,8 @@ Quinze outils, tous en lecture seule (`readOnlyHint`), qui interrogent le résea
 | `fr_search_all` | Recherche dans plusieurs fonds à la fois : les meilleurs résultats de chacun, groupés par fonds, avec leurs totaux. |
 | `fr_search_bofip` | Recherche dans le BOFiP (doctrine de l'administration fiscale) par quelques mots simples, avec un filtre de série (`ENR`, `IR`, `RFPI`…) et de nature (doctrine, actualités). Rend des titres et des identifiants, jamais le texte. |
 | `fr_get_bofip` | Texte d'une publication du BOFiP par son identifiant (`BOI-…`, `ACTU-…`), avec la même lecture progressive que `fr_get_text`, et la liste des articles de code qu'elle cite. |
+| `fr_search_service_public` | Recherche dans les fiches pratiques de Service-Public.gouv.fr (particuliers, par défaut) ou d'Entreprendre.Service-Public.gouv.fr (entreprises et indépendants), ou les deux, par quelques mots simples cherchés dans les titres et les résumés. Rend des titres, des identifiants et la place de chaque page dans le site, jamais le texte. |
+| `fr_get_service_public` | Fiche (`F…`) ou dossier (`N…`) par son identifiant : le texte d'une fiche, avec la même lecture progressive que `fr_get_text`, et les textes de Légifrance sur lesquels elle s'appuie ; la liste des pages d'un dossier. |
 
 **Retour progressif.** Pour économiser le contexte du modèle, un texte de plus de 1 200 caractères est d'abord rendu en résumé. Pour le lire en entier, demandez `detail: "full"` et enchaînez avec `offset = next_offset` ; `focus` extrait les passages qui correspondent à des mots donnés. Une réponse ne dépasse jamais 45 000 caractères de JSON compact.
 
@@ -70,6 +75,19 @@ Le BOFiP (Bulletin officiel des finances publiques, impôts) est la **doctrine d
 - **Vérifier qu'une publication est à jour.** Une publication peut être plus ancienne que la loi qu'elle commente. La lecture ne le juge pas : elle liste les articles de code que cite le texte (`cited_articles`, 50 au plus). Passez-les une fois à `fr_verify_citations` (la liste est la même à chaque page), qui donne pour chacun la date de début de la version en vigueur ; pour un article dont la version a commencé après `valid_from`, `fr_diff_article` depuis `valid_from` montre ce qui a changé. Cette vérification interroge Légifrance : elle demande des identifiants PISTE, la lecture du BOFiP non. Les articles de lois et de décrets non codifiés ne sont pas listés.
 - **Débit.** Le serveur envoie au plus 2 requêtes par seconde au portail et 10 000 par jour et par processus ; après un refus `429` du portail, il attend sans réessayer et répond `[rate_limited]`.
 - **Couper la source.** `LF_BOFIP=off` : les deux outils répondent `[config_error]` sans appel réseau. Voir [Variables d'environnement](#variables-denvironnement).
+
+### Fiches pratiques (Service-Public)
+
+Les fiches pratiques de Service-Public.gouv.fr sont le **guide de l'administration** sur les droits et les démarches, écrit pour le public par la Direction de l'information légale et administrative (DILA) : elles expliquent les règles en langage courant, elles ne sont pas la loi. Les fiches pour les particuliers viennent de Service-Public.gouv.fr ; celles pour les entreprises et les indépendants, d'Entreprendre.Service-Public.gouv.fr (`audience` : `particuliers`, par défaut, ou `entreprendre`). Les fiches pour les associations ne sont pas servies.
+
+- **Aucun compte, aucun mot envoyé.** La première fois qu'un des deux outils sert un public, le serveur télécharge l'archive du jour de ce public sur le serveur de la DILA (24 Mo pour Particuliers et 11 Mo pour Entreprendre le 2026-11-24), la garde en mémoire, puis cherche et lit dans cette copie : ni vos mots ni les numéros de fiches ne quittent votre machine. La copie sert sans nouvelle requête pendant 24 heures ; ensuite, l'appel suivant la revalide, sans la télécharger de nouveau si elle n'a pas changé.
+- **Premier appel.** Sur une liaison lente, le téléchargement peut durer plus que l'échéance d'un appel (`LF_TOOL_DEADLINE_S`, 60 s par défaut) : l'outil répond alors `[upstream_error] Service-Public archive is still downloading; retry in a minute.`, et le téléchargement continue. Réessayez une minute plus tard.
+- **La version du jour seulement.** Aucune version passée n'est servie. Chaque réponse le rappelle (`guidance_note`), donne la date de l'archive lue (`source_files` pour la recherche, `source_file` pour la lecture) et l'adresse de la page sur le site (`source_url`).
+- **Chercher.** Les mots de `query` sont cherchés dans les titres et les résumés des fiches et des dossiers, accents et majuscules mis à part ; un mot trouve aussi les mots plus longs qu'il commence. Le texte des fiches n'est pas cherché : un résultat vide ne prouve pas qu'aucune fiche ne traite du sujet. `audience: "all"` cherche dans les deux sites.
+- **Lire.** Une fiche (`F…`) se lit comme un texte de Légifrance (`detail`, `offset`, `max_chars`, `focus`) ; un dossier (`N…`) liste ses pages, à lire ensuite une par une. `path` donne la place de la page dans le site, de la rubrique la plus large à la plus étroite.
+- **Vérifier la règle.** Une fiche peut retarder sur un changement de la loi. Elle liste dans `legal_references` les textes de Légifrance sur lesquels elle s'appuie (50 au plus), avec leur identifiant quand un outil du serveur sait le lire : lisez-les avant de vous fier à un montant, un délai ou une condition. Cette vérification interroge Légifrance et demande des identifiants PISTE ; la lecture des fiches non.
+- **Débit.** Le serveur n'envoie que ces téléchargements et revalidations. Après un refus `429`, il ne réessaie pas : il répond `[rate_limited]`, se repose, et continue de servir l'archive déjà en mémoire s'il en a une.
+- **Couper la source.** `LF_SERVICE_PUBLIC=off` : les deux outils répondent `[config_error]` sans appel réseau. Voir [Variables d'environnement](#variables-denvironnement).
 
 **Resources, prompts et complétions.** En plus des outils, le serveur expose la resource `legifrance://coverage`, quatre modèles de resources (`legifrance://act/{text_id}`, `legifrance://article/{article_id}`, `legifrance://code/{code}/article/{num}`, `legifrance://decision/{decision_id}`), trois prompts en français (`analyser_decision`, `etat_du_droit`, `verifier_citations`) et la complétion de leurs arguments.
 
@@ -330,6 +348,7 @@ La configuration vient **uniquement** de l'environnement (aucun fichier, aucune 
 | `LF_HTTP_TIMEOUT_S` | délai par requête vers PISTE et vers le portail du BOFiP, en secondes | 1 à 300, défaut 40 |
 | `LF_TOOL_DEADLINE_S` | délai global par appel d'outil, en secondes | 1 à 600, défaut 60 |
 | `LF_BOFIP` | source de doctrine fiscale (outils `fr_search_bofip` et `fr_get_bofip`) | `on` (défaut) ou `off`, casse indifférente ; voir ci-dessous |
+| `LF_SERVICE_PUBLIC` | source des fiches pratiques (outils `fr_search_service_public` et `fr_get_service_public`) | `on` (défaut) ou `off`, casse indifférente ; mêmes règles que `LF_BOFIP` |
 
 `LF_BOFIP` ne figure pas dans `server.json` : pour l'employer, ajoutez-la au bloc `env` de votre client. **Le bundle MCPB, lui, n'a pas de bloc `env` à modifier : il porte un réglage « Tax doctrine source (BOFiP) »**, `on` par défaut ; écrivez-y `off` pour couper la source. Ce réglage arrive avec les deux outils, en 1.3.0 : un bundle plus ancien n'a ni les uns ni l'autre. Trois règles :
 
@@ -338,6 +357,8 @@ La configuration vient **uniquement** de l'environnement (aucun fichier, aucune 
 - il n'existe aucune variable d'adresse pour cette source : l'hôte est fixé dans le code.
 
 `check-config` n'affiche la ligne `LF_BOFIP` que si la variable est définie ou si la source est coupée d'office.
+
+`LF_SERVICE_PUBLIC` suit les mêmes trois règles pour la source des fiches pratiques : active par défaut et coupée d'office en mode hors ligne, sauf `LF_SERVICE_PUBLIC=on` ; coupée par toute autre valeur que `on` ou `off`, avec un problème signalé ; aucune variable d'adresse. Elle ne figure pas non plus dans `server.json` ; le bundle MCPB porte le réglage « Practical sheets source (Service-Public) », `on` par défaut. Le téléchargement de l'archive n'est pas borné par `LF_HTTP_TIMEOUT_S` : un appel l'attend au plus `LF_TOOL_DEADLINE_S` moins une seconde, puis le laisse continuer. `check-config` n'affiche sa ligne, après celle de `LF_BOFIP`, que si la variable est définie ou si la source est coupée d'office.
 
 Règles des surcharges d'adresse : `https` obligatoire (`http` n'est admis que vers `127.0.0.1`, `::1` et `localhost`) ; ni identifiant utilisateur, ni paramètres, ni fragment dans l'adresse. Un hôte autre que les quatre hôtes officiels est accepté avec l'avertissement `CustomHost` (au démarrage, dans `check-config` et dans les lacunes de `fr_coverage`). Un hôte officiel de l'**autre** environnement est un problème `EnvMismatch` : le serveur ne déduit jamais l'environnement des adresses, il demande `LF_PISTE_ENV=production`.
 
@@ -382,6 +403,8 @@ Option : au lieu d'appeler PISTE, le serveur lit une **copie locale** des codes,
 
 **Et le BOFiP ?** En mode hors ligne, la source du BOFiP est **coupée d'office**, que le dossier d'index soit utilisable ou non : `fr_search_bofip` et `fr_get_bofip` répondent `[config_error]`, et aucune requête ne part. Si vous voulez la doctrine fiscale tout en gardant les textes de Légifrance en local, ajoutez `LF_BOFIP=on` : ces deux outils, et eux seuls, contactent alors `data.economie.gouv.fr`.
 
+**Et Service-Public ?** Même règle : en mode hors ligne, la source des fiches pratiques est coupée d'office. `LF_SERVICE_PUBLIC=on` la rétablit : `fr_search_service_public` et `fr_get_service_public`, et eux seuls, téléchargent alors l'archive du jour sur `lecomarquage.service-public.gouv.fr`.
+
 **Place nécessaire** (mesurée le 2026-10-31 sur les archives réelles : 1 fichier complet du 2025-07-13 et 481 mises à jour) : 3,1 Go d'archives à télécharger, puis un index de 3,6 Go (2 405 838 documents, aucun membre refusé), soit environ 7 Go de disque. La construction a pris 1 h 10 avec un binaire de développement non optimisé et 3,6 Go de mémoire au plus ; la durée avec le binaire publié n'a pas été mesurée.
 
 **Trois étapes.**
@@ -418,15 +441,16 @@ Le serveur ne contacte que les hôtes ci-dessous, et seulement dans les cas indi
 | Binaire, `LF_PISTE_ENV=production` | `oauth.piste.gouv.fr`, `api.piste.gouv.fr` (exercés à la main par le mainteneur depuis le 2026-11-02, jamais par la CI) | idem |
 | Binaire avec `LF_PISTE_OAUTH_URL` ou `LF_PISTE_BASE_URL` | l'hôte que vous fournissez (`https`, ou `http` vers la boucle locale seulement) ; avertissement `CustomHost` s'il n'est pas l'un des quatre hôtes officiels | idem |
 | Binaire, source du BOFiP active (défaut ; coupée par `LF_BOFIP=off` ou par `LF_DILA_DIR`) | `data.economie.gouv.fr` (portail de données ouvertes du ministère de l'Économie, jeu `bofip-vigueur`), en `https`, à une adresse fixée dans le code, sans redirection suivie | à chaque appel de `fr_search_bofip` ou de `fr_get_bofip`, jamais au démarrage ni par les autres outils |
-| `check-config --online` | l'hôte OAuth de l'environnement choisi : une requête de jeton, jamais d'appel à l'API ni au portail du BOFiP | à la demande |
+| Binaire, source de Service-Public active (défaut ; coupée par `LF_SERVICE_PUBLIC=off` ou par `LF_DILA_DIR`) | `lecomarquage.service-public.gouv.fr` (serveur de la DILA), en `https`, à deux adresses fixées dans le code (l'archive du jour de chaque public), sans redirection suivie ; aucune requête ne porte un mot de recherche ni un numéro de fiche | au premier appel de `fr_search_service_public` ou de `fr_get_service_public` pour un public, puis pour une revalidation après 24 heures ; jamais au démarrage ni par les autres outils |
+| `check-config --online` | l'hôte OAuth de l'environnement choisi : une requête de jeton, jamais d'appel à l'API, au portail du BOFiP ni au serveur de Service-Public | à la demande |
 | Installeurs shell et PowerShell, bundle MCPB, archives | `github.com` et l'hôte vers lequel GitHub redirige le téléchargement des fichiers de release | à l'installation |
 | `cargo install --git` | `github.com` (clone du dépôt à l'étiquette), `index.crates.io` et `static.crates.io` (dépendances) | à l'installation |
 | Image Docker | `ghcr.io` | au `docker pull` |
 | Script de téléchargement des dumps DILA (version 1.0, hors binaire) | `echanges.dila.gouv.fr` | lancé explicitement par l'utilisateur |
 
-Le site `bofip.impots.gouv.fr` n'est jamais contacté : son adresse n'apparaît que dans le champ `source_url` des réponses, pour que vous puissiez ouvrir la page.
+Le site `bofip.impots.gouv.fr` n'est jamais contacté : son adresse n'apparaît que dans le champ `source_url` des réponses, pour que vous puissiez ouvrir la page. Il en va de même de `www.service-public.gouv.fr` et d'`entreprendre.service-public.gouv.fr`.
 
-Derrière un proxy d'entreprise, le binaire emploie le proxy système ; la prise en compte des variables de proxy usuelles n'est pas vérifiée pour PISTE. Pour le BOFiP, les tests du binaire montrent qu'il suit `HTTPS_PROXY` : le proxy voit alors le nom de l'hôte (`data.economie.gouv.fr`), jamais les mots cherchés, qui restent dans la connexion chiffrée. Les installeurs de dist déclarent respecter les variables de proxy usuelles.
+Derrière un proxy d'entreprise, le binaire emploie le proxy système ; la prise en compte des variables de proxy usuelles n'est pas vérifiée pour PISTE. Pour le BOFiP, les tests du binaire montrent qu'il suit `HTTPS_PROXY` : le proxy voit alors le nom de l'hôte (`data.economie.gouv.fr`), jamais les mots cherchés, qui restent dans la connexion chiffrée. Pour Service-Public aussi, les tests du binaire montrent qu'il suit `HTTPS_PROXY` : le proxy voit `lecomarquage.service-public.gouv.fr`, et aucune requête ne porte vos mots. Les installeurs de dist déclarent respecter les variables de proxy usuelles.
 
 ## Attribution, licence des données et non-affiliation
 
@@ -438,9 +462,16 @@ Derrière un proxy d'entreprise, le binaire emploie le proxy système ; la prise
 
 > Source : BOFiP-Impôts / DGFiP — Licence Ouverte 2.0
 
+**Fiches pratiques.** Les fiches rendues par `fr_search_service_public` et `fr_get_service_public` proviennent des jeux de données ouverts de la DILA (flux 3.5 de Service-Public, publiés sur data.gouv.fr), sous **Licence Ouverte 2.0**. Chaque réponse de ces deux outils porte dans `attribution` la mention propre au site du public :
+
+- Particuliers : `Source : Service-Public.gouv.fr / DILA — Licence Ouverte 2.0` ;
+- Entreprendre : `Source : Entreprendre.Service-Public.gouv.fr / DILA — Licence Ouverte 2.0`.
+
+Elle porte aussi, dans `source_files` (recherche) ou `source_file` (lecture), l'adresse de téléchargement de l'archive, son nom et sa date, que les fiches de présentation de la DILA demandent de citer avec la source.
+
 **Date de consultation.** Quand vous citez ou republiez un texte obtenu par ce serveur, indiquez aussi la date à laquelle vous l'avez consulté. L'outil `fr_coverage` la fournit : son champ `consulted_on` donne la date du jour (fuseau Europe/Paris), et son champ `attribution` porte la mention ci-dessus. Les instructions du serveur rappellent la source et la licence. La Licence Ouverte demande le concédant et la date de dernière mise à jour ; le serveur ne dispose pas d'un champ fiable de mise à jour par document, et la date de consultation en tient lieu. Qu'une mention globale suffise est une lecture adoptée par défaut, non confirmée.
 
-**Valeur des textes.** Seules les éditions du Journal officiel signées électroniquement font foi : une réponse de ce serveur n'a pas de valeur opposable et n'est pas un avis juridique. Le BOFiP est la doctrine de l'administration, pas la loi ; le serveur n'en sert que les publications en vigueur aujourd'hui, et ne dit pas si un passage s'applique à votre situation ni à une période passée. Les décisions de justice sont diffusées **pseudonymisées** et les délibérations de la CNIL **occultées** ; le serveur ne lève ni l'un ni l'autre.
+**Valeur des textes.** Seules les éditions du Journal officiel signées électroniquement font foi : une réponse de ce serveur n'a pas de valeur opposable et n'est pas un avis juridique. Le BOFiP est la doctrine de l'administration, pas la loi ; le serveur n'en sert que les publications en vigueur aujourd'hui, et ne dit pas si un passage s'applique à votre situation ni à une période passée. Les fiches de Service-Public sont un guide écrit pour le public, pas la loi non plus, et seule leur version du jour est servie. Les décisions de justice sont diffusées **pseudonymisées** et les délibérations de la CNIL **occultées** ; le serveur ne lève ni l'un ni l'autre.
 
 **Non-affiliation.** Ce projet n'est ni édité, ni approuvé, ni soutenu par la DILA, ni par l'AIFE (qui exploite PISTE), ni par la DGFiP, ni par aucune autorité publique. « Légifrance » désigne le service public de diffusion du droit : le produit s'appelle `mcp-legifrance`, ses titres portent « (unofficial) », et il n'emploie aucun logo de Légifrance ni de l'État. *Not affiliated with or endorsed by DILA, AIFE or any French public body.*
 
@@ -462,7 +493,7 @@ Pour un utilisateur de la référence Python (`fr-eli-mcp`). La note complète, 
 
 ## Confidentialité et sécurité
 
-- **Ce qui part sur le réseau** : vos requêtes de recherche et les identifiants de documents, avec vos identifiants PISTE, vers l'API Légifrance (DILA) par PISTE (AIFE). Pour les deux outils du BOFiP : vos mots de recherche et les identifiants de publications, sans aucun identifiant de compte mais avec votre adresse IP, vers le portail `data.economie.gouv.fr`, hébergé par un prestataire du ministère. Rien d'autre (voir [Hôtes contactés](#hôtes-contactés)). Une recherche fiscale peut en dire long sur votre situation : `LF_BOFIP=off` coupe cette source.
+- **Ce qui part sur le réseau** : vos requêtes de recherche et les identifiants de documents, avec vos identifiants PISTE, vers l'API Légifrance (DILA) par PISTE (AIFE). Pour les deux outils du BOFiP : vos mots de recherche et les identifiants de publications, sans aucun identifiant de compte mais avec votre adresse IP, vers le portail `data.economie.gouv.fr`, hébergé par un prestataire du ministère. Rien d'autre (voir [Hôtes contactés](#hôtes-contactés)). Une recherche fiscale peut en dire long sur votre situation : `LF_BOFIP=off` coupe cette source. Pour les deux outils de Service-Public : le seul téléchargement de l'archive du jour de chaque public, sans mot de recherche ni numéro de fiche, mais avec votre adresse IP et l'heure, vers `lecomarquage.service-public.gouv.fr` (DILA) ; `LF_SERVICE_PUBLIC=off` coupe cette source.
 - **Ce qui reste sur votre machine** : un journal d'audit au format JSONL (`mcp-legifrance.jsonl`, avec rotation), à raison d'une ligne par appel d'outil, quelle qu'en soit l'issue. Il contient une **empreinte** SHA-256 des arguments, jamais le texte de vos requêtes en clair, ni secret. En mode `strict` (défaut), un échec d'écriture fait échouer l'appel. Plusieurs processus peuvent partager le même dossier. Après un arrêt brutal, une ligne coupée reste dans le journal, seule sur sa ligne : l'appel suivant garde sa ligne complète (lecture tolérante : `jq -R 'fromjson?'`).
 - **Journaux** : sur stderr uniquement ; stdout ne porte que le protocole. Ni secret, ni texte de requête n'y figure.
 - Les textes renvoyés sont des **données**, pas des instructions : un modèle ne doit pas exécuter ce qu'un texte juridique lui demanderait.
@@ -481,6 +512,7 @@ Le projet note ses incertitudes plutôt que de les taire. Pour la 1.4.1 :
 - L'index local DILA a été construit une fois sur les archives réelles (1 h 10 avec un binaire de développement) et interrogé sur quelques requêtes, sur Linux seulement, avant la montée de `tantivy` (livrée par la 1.3.0) : depuis, la reconstruction n'a été contrôlée que sur les mini-archives du dépôt, pas sur les archives réelles (ADR-0027). La durée avec le binaire publié, le comportement sous Windows et macOS, la date de l'instantané dans les réponses et la licence propre à chaque fonds ne sont pas vérifiés.
 - L'adresse Légifrance qu'un article de loi reçoit dans `source_url` n'a pas été ouverte dans un navigateur pour confirmer qu'elle s'affiche.
 - **BOFiP** : le quota du portail n'est connu que par ses en-têtes (50 000 requêtes par jour, portée inconnue) et aucun refus `429` n'a été observé ; ni le pays d'hébergement du portail ni la durée de conservation de ses journaux ne sont publiés ; le portail peut changer de forme sans prévenir (un test hebdomadaire le signale, il ne l'empêche pas) ; le sens de l'opérateur `like`, sur lequel repose la recherche en mots exacts, est mesuré sur le portail, pas lu dans sa documentation (deux tests hebdomadaires le suivent).
+- **Service-Public** (pas encore publié) : la recherche sur les titres et les résumés a mis la fiche attendue dans les cinq premiers résultats pour 18 questions sur 20, des questions nouvelles écrites et jugées à l'aveugle ; une recherche formulée autrement peut la manquer. Mesuré sur le binaire de la branche, pas sur un binaire publié : le premier appel prend quelques secondes sur une bonne liaison (3,6 s pour Particuliers), et les deux archives prennent environ 47 Mio de mémoire. Le serveur de la DILA ne publie aucun quota. Le flux peut changer de version (la DILA retire un flux six mois après le suivant) : un test hebdomadaire le signale, il ne l'empêche pas.
 
 Le registre complet des points ouverts est dans [`docs/plan/09-risques-et-questions.md`](docs/plan/09-risques-et-questions.md).
 

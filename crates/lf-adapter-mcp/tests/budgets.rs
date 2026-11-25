@@ -49,6 +49,11 @@ mod budgets {
             SectionDraft, Snippet, TextBody, Toc, TocDraft,
         },
         fond::{Fond, PaginationMode},
+        guidance::{
+            Audience, Block, GuidanceContent, GuidanceDoc, GuidanceHit, GuidanceKind, GuidancePage,
+            Inline, LegalReferences, NavigationEntry, ServicePublicUrl, SheetId, legal_references,
+            render,
+        },
         id::{
             AccoTextId, ArticleId, CnilTextId, DecisionId, DocumentId, KaliTextId, LegiArtiId,
             LegiTextId,
@@ -414,6 +419,95 @@ mod budgets {
                 }
             })
             .collect()
+    }
+
+    /// La fiche ou le dossier `raw` de Particuliers.
+    fn sheet_id(raw: &str) -> SheetId {
+        SheetId::parse(raw).unwrap()
+    }
+
+    /// Un résultat de Service-Public : la fiche `F{n}` de Particuliers, de titre `title`, placée
+    /// sous les trois intitulés `path`.
+    fn guidance_hit(n: u32, title: &str, path: &[String]) -> GuidanceHit {
+        let id = sheet_id(&format!("F{n}"));
+        GuidanceHit {
+            source_url: ServicePublicUrl::read(None, Audience::Particuliers, &id),
+            audience: Audience::Particuliers,
+            id,
+            kind: GuidanceKind::Sheet,
+            title: title.to_owned(),
+            path: path.to_vec(),
+            updated: CivilDate::new(2026, 4, 1),
+        }
+    }
+
+    /// Une page de 50 résultats de Service-Public (le plus que permet `page_size`), la réponse du
+    /// port qui la porte, et le coût brut de ses titres et chemins.
+    fn guidance_page(
+        title: impl Fn(u32) -> String,
+        path: &[String],
+    ) -> (lf_application::ports::GuidanceFound, Raw) {
+        let titles: Vec<String> = (1..=50).map(title).collect();
+        let parts = titles
+            .iter()
+            .map(String::as_str)
+            .chain(std::iter::repeat_n(path.iter().map(String::as_str), 50).flatten());
+        let raw = Raw::of(parts).with_each(50, GUIDANCE_HIT_FIXED_CHARS);
+        let hits = (1..=50).zip(&titles).map(|(n, title)| guidance_hit(n, title, path)).collect();
+        let page = GuidancePage { total: 50, hits };
+        (lf_application::ports::GuidanceFound { page, files: Vec::new() }, raw)
+    }
+
+    /// JSON d'un résultat de Service-Public hors titre et chemin, arrondi bas (environ 170).
+    const GUIDANCE_HIT_FIXED_CHARS: usize = 150;
+
+    /// La fiche F1437 de Particuliers : le texte `text`, un paragraphe par ligne, et les
+    /// références `references`.
+    fn guidance_sheet(text: &str, references: LegalReferences) -> GuidanceDoc {
+        let id = sheet_id("F1437");
+        let blocks: Vec<Block> = text
+            .lines()
+            .map(|line| Block::Paragraph(vec![Inline::Text(line.to_owned())]))
+            .collect();
+        GuidanceDoc {
+            source_url: ServicePublicUrl::read(None, Audience::Particuliers, &id),
+            id,
+            audience: Audience::Particuliers,
+            sheet_type: Some("Fiche d'information".to_owned()),
+            title: "Solde bancaire insaisissable (SBI)".to_owned(),
+            description: Some("Somme laissée sur le compte.".to_owned()),
+            theme: Some("Argent".to_owned()),
+            path: vec!["Justice".to_owned(), "Saisies et recouvrements".to_owned()],
+            updated: CivilDate::new(2026, 4, 1),
+            content: GuidanceContent::Sheet { text: render(&blocks).unwrap(), references },
+        }
+    }
+
+    /// La lecture d'une fiche, telle que le port la rend : la page et son archive, sans date.
+    fn guidance_read(doc: GuidanceDoc) -> lf_application::ports::GuidanceRead {
+        let file =
+            lf_application::ports::ArchiveFile { audience: doc.audience, last_modified: None };
+        lf_application::ports::GuidanceRead { doc, file }
+    }
+
+    /// Les `max_chars` premiers caractères du texte de `doc` : la fenêtre lue sans dégrader.
+    fn guidance_window_of(doc: &GuidanceDoc, max_chars: usize) -> String {
+        doc.text().unwrap().as_str().chars().take(max_chars).collect()
+    }
+
+    /// `count` références à des articles de Légifrance distincts, au titre de 1 000 caractères.
+    fn long_references(count: u32) -> (Vec<(String, String)>, LegalReferences) {
+        let links: Vec<(String, String)> = (1..=count)
+            .map(|n| {
+                let title = format!("{n} {}", "x".repeat(995));
+                let url =
+                    format!("https://www.legifrance.gouv.fr/codes/article_lc/LEGIARTI{n:012}");
+                (title, url)
+            })
+            .collect();
+        let references =
+            legal_references(links.iter().map(|(title, url)| (Some(title.as_str()), url.as_str())));
+        (links, references)
     }
 
     /// Les titres raccourcis d'une page du BOFiP : 120 caractères, `…` compris.
@@ -1055,6 +1149,152 @@ mod budgets {
                     assert_eq!(listed.len(), 10);
                     assert!(observed.value.get("text").is_none());
                     json!({"publications": listed.len(), "chars": observed.chars})
+                },
+            },
+            // ---- fr_search_service_public et fr_get_service_public ------------------------------
+            Case {
+                name: "service_public_search_50_hits_with_1000_char_titles",
+                tool: "fr_search_service_public",
+                arguments: json!({"query": "logement", "page_size": 50}),
+                extreme: Extreme::OverTheCap,
+                setup: |fixture| {
+                    let path = ["Logement", "Location", "Bail d'habitation"].map(str::to_owned);
+                    let (found, raw) = guidance_page(|n| format!("{n} {}", "x".repeat(996)), &path);
+                    fixture.guidance.push_search(Ok(found));
+                    raw
+                },
+                check: |observed| {
+                    // Aucun résultat n'est retiré : les titres longs sont raccourcis par la fin,
+                    // et la note dit exactement combien (05 §5.16) ; les chemins restent.
+                    let hits = hits_of(observed);
+                    assert_eq!(hits.len(), 50, "aucun résultat n'est retiré");
+                    let shortened = shortened_titles(hits);
+                    assert!((1..=50).contains(&shortened), "{shortened}");
+                    assert_eq!(shortened_titles(&hits[50 - shortened..]), shortened);
+                    assert!(hits.iter().all(|hit| hit.get("path").is_some()));
+                    assert!(
+                        observed
+                            .note()
+                            .starts_with(&format!("{shortened} long titles were shortened")),
+                        "{}",
+                        observed.note()
+                    );
+                    assert!(observed.chars <= TARGET, "{}", observed.chars);
+                    json!({"hits": hits.len(), "titles_shortened": shortened})
+                },
+            },
+            Case {
+                name: "service_public_search_50_hits_with_escape_rich_titles_and_paths",
+                tool: "fr_search_service_public",
+                arguments: json!({"query": "logement", "page_size": 50}),
+                extreme: Extreme::OverTheCap,
+                setup: |fixture| {
+                    // Trois intitulés de 120 caractères riches en échappements (le plus que le
+                    // menu admette) : même raccourcis, les titres ne suffisent pas, les chemins
+                    // des derniers résultats sont retirés, jamais un résultat.
+                    let path = [nasty(120), nasty(120), nasty(120)];
+                    let (found, raw) = guidance_page(|_| nasty(1_000), &path);
+                    fixture.guidance.push_search(Ok(found));
+                    raw
+                },
+                check: |observed| {
+                    let hits = hits_of(observed);
+                    assert_eq!(hits.len(), 50, "aucun résultat n'est retiré");
+                    assert_eq!(shortened_titles(hits), 50);
+                    let placed = hits.iter().filter(|hit| hit.get("path").is_some()).count();
+                    assert!((1..50).contains(&placed), "{placed}");
+                    // Les chemins retirés le sont en partant du dernier résultat, sans trou.
+                    assert!(hits[..placed].iter().all(|hit| hit.get("path").is_some()));
+                    let removed = 50 - placed;
+                    assert!(
+                        observed.note().contains(&format!("The paths of {removed} hits were")),
+                        "{}",
+                        observed.note()
+                    );
+                    json!({"hits": hits.len(), "titles_shortened": 50, "paths_removed": removed})
+                },
+            },
+            Case {
+                name: "service_public_get_40000_char_escape_rich_window",
+                tool: "fr_get_service_public",
+                arguments: json!({"id": "F1437", "detail": "full", "max_chars": 40_000}),
+                extreme: Extreme::OverTheCap,
+                setup: |fixture| {
+                    let doc = guidance_sheet(&nasty_paragraphs(6_500), LegalReferences::default());
+                    let raw = Raw::of([guidance_window_of(&doc, 40_000).as_str()]);
+                    fixture.guidance.push_get(Ok(guidance_read(doc)));
+                    raw
+                },
+                check: reading_window,
+            },
+            Case {
+                name: "service_public_get_40000_char_window_with_60_long_references",
+                tool: "fr_get_service_public",
+                arguments: json!({"id": "F1437", "detail": "full", "max_chars": 40_000}),
+                extreme: Extreme::OverTheCap,
+                setup: |fixture| {
+                    // Soixante références aux titres de 1 000 caractères : la liste, plafonnée à
+                    // 50, reste entière, ses derniers titres sont raccourcis pour tenir sous
+                    // 20 000 caractères de métadonnées, puis la fenêtre raccourcit.
+                    let (links, references) = long_references(60);
+                    let doc = guidance_sheet(&nasty_paragraphs(6_500), references);
+                    let titles = links.iter().take(50).map(|(title, _)| title.as_str());
+                    let raw = Raw::of(titles.chain([guidance_window_of(&doc, 40_000).as_str()]));
+                    fixture.guidance.push_get(Ok(guidance_read(doc)));
+                    raw
+                },
+                check: |observed| {
+                    let kept = reading_window(observed);
+                    let references = observed.value["legal_references"].as_array().expect("a list");
+                    assert_eq!(references.len(), 50);
+                    assert_eq!(observed.value["legal_references_truncated"], true);
+                    let shortened = shortened_titles(references);
+                    assert!((1..50).contains(&shortened), "{shortened}");
+                    assert!(
+                        observed.note().contains(&format!("{shortened} long reference titles")),
+                        "{}",
+                        observed.note()
+                    );
+                    json!({"window": kept, "references": 50, "titles_shortened": shortened})
+                },
+            },
+            Case {
+                name: "service_public_get_folder_with_100_entries",
+                tool: "fr_get_service_public",
+                arguments: json!({"id": "N31901"}),
+                extreme: Extreme::Ordinary,
+                setup: |fixture| {
+                    // Cent entrées de 60 caractères, groupées : un dossier réel en porte moins
+                    // (7 516 caractères d'entrées au plus, N31901, mesure du 2026-11-24).
+                    let id = sheet_id("N31901");
+                    let entries = (1..=100)
+                        .map(|n| NavigationEntry {
+                            id: sheet_id(&format!("F{n}")),
+                            kind: GuidanceKind::Sheet,
+                            title: format!("{n} {}", "y".repeat(57)),
+                            group: Some("Salariés".to_owned()),
+                        })
+                        .collect();
+                    let doc = GuidanceDoc {
+                        source_url: ServicePublicUrl::read(None, Audience::Particuliers, &id),
+                        id,
+                        audience: Audience::Particuliers,
+                        sheet_type: None,
+                        title: "Rémunération".to_owned(),
+                        description: None,
+                        theme: None,
+                        path: vec!["Travail".to_owned()],
+                        updated: None,
+                        content: GuidanceContent::Folder(entries),
+                    };
+                    fixture.guidance.push_get(Ok(guidance_read(doc)));
+                    Raw { chars: 0, bytes: 0 }
+                },
+                check: |observed| {
+                    let entries = observed.value["entries"].as_array().expect("a list");
+                    assert_eq!(entries.len(), 100);
+                    assert!(observed.value.get("text").is_none());
+                    json!({"entries": entries.len(), "chars": observed.chars})
                 },
             },
             // ---- fr_coverage ------------------------------------------------------------------
@@ -1906,15 +2146,16 @@ mod budgets {
     /// octets). La revue finale de la PR 2 (AM-73) applique la règle d'AM-63 à la mesure finale,
     /// 35 424 octets (35 395 au premier tour, 35 424 au second) : plus 3 % (36 486,72), arrondi à la
     /// centaine supérieure, soit 36 500. Le jalon MB (AM-93) ajoute les deux outils du BOFiP :
-    /// 41 878 octets mesurés sur les quinze outils, plus 3 % (43 134,34), soit 43 200. La même
-    /// valeur est dans `TOOLS_LIST_BUDGETS` de `xtask` (`lock-descriptors`), qui mesure le même
-    /// JSON canonique.
+    /// 41 878 octets mesurés sur les quinze outils, plus 3 % (43 134,34), soit 43 200. Le jalon
+    /// MS (ADR-0033, décision 14) ajoute les deux outils de Service-Public : 49 792 octets mesurés
+    /// sur les dix-sept outils, plus 3 % (51 285,76), soit 51 300. La même valeur est dans
+    /// `TOOLS_LIST_BUDGETS` de `xtask` (`lock-descriptors`), qui mesure le même JSON canonique.
     #[tokio::test]
     async fn descriptor_size_budget() {
         let client = Fixture::default().connect().await;
         let tools = client.list_all_tools().await.unwrap();
         let bytes = serde_json::to_vec(&tools).unwrap().len();
-        assert!(bytes <= 43_200, "tools/list: {bytes} bytes");
+        assert!(bytes <= 51_300, "tools/list: {bytes} bytes");
         for tool in &tools {
             let description = tool.description.as_deref().unwrap_or("");
             assert!(description.chars().count() <= 1_000, "{}: {description}", tool.name);

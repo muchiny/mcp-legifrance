@@ -11,14 +11,16 @@ use crate::{
     error::AppError,
     input::{SearchBofipInput, ToolCall},
     output::search_bofip::SearchBofipOutput,
-    ports::{AuditLog, Clock, LegalCorpus, TaxDoctrine},
+    ports::{AuditLog, Clock, LegalCorpus, PublicGuidance, TaxDoctrine},
     tools::ToolName,
     usecase::search_bofip::SearchBofipUseCase,
 };
 
 use super::LegalService;
 
-impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine> LegalService<C, A, K, D> {
+impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine, G: PublicGuidance>
+    LegalService<C, A, K, D, G>
+{
     /// `fr_search_bofip` : recherche dans le BOFiP, la doctrine publiée de l'administration
     /// fiscale (05 §5.14). Métrique d'audit : le nombre de résultats renvoyés.
     ///

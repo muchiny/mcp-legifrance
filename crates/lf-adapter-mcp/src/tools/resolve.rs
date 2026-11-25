@@ -8,7 +8,7 @@
 
 use lf_application::{
     input::ResolveInput,
-    ports::{AuditLog, Clock, LegalCorpus, TaxDoctrine},
+    ports::{AuditLog, Clock, LegalCorpus, PublicGuidance, TaxDoctrine},
 };
 use rmcp::{Json, model::JsonObject};
 use rmcp_macros::{tool, tool_router};
@@ -29,7 +29,9 @@ use crate::{
 pub(crate) const DESCRIPTION: &str = "Turn one free-text legal citation into Légifrance ids, for example \"article 1240 du code civil\", \"loi n° 78-17 du 6 janvier 1978\", \"Cass. civ. 1re, 4 juin 2025, n° 24-13.470\" or an ECLI. Returns `candidates` (id, kind, citation, source_url, confidence high/medium/low), best first; nothing is guessed or fabricated, and an empty list comes with a `note` saying why. Pass `date` (YYYY-MM-DD, default: today in Paris) for the article version in force on that day. Then open a candidate with the fr_get_* tool for its kind; to check all citations of a text at once use fr_verify_citations.";
 
 #[tool_router(router = resolve_router, vis = "pub(crate)")]
-impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine> LegifranceServer<C, A, K, D> {
+impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine, G: PublicGuidance>
+    LegifranceServer<C, A, K, D, G>
+{
     #[tool(
         name = "fr_resolve",
         title = "Resolve a legal citation",

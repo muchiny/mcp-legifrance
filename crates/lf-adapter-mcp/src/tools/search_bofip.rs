@@ -7,7 +7,7 @@
 
 use lf_application::{
     input::SearchBofipInput,
-    ports::{AuditLog, Clock, LegalCorpus, TaxDoctrine},
+    ports::{AuditLog, Clock, LegalCorpus, PublicGuidance, TaxDoctrine},
 };
 use rmcp::{Json, model::JsonObject};
 use rmcp_macros::{tool, tool_router};
@@ -29,7 +29,9 @@ use crate::{
 pub(crate) const DESCRIPTION: &str = "Search BOFiP, the published doctrine of the French tax administration (DGFiP): how the administration reads tax law, not the law itself. Every word of `query` must appear in a publication exactly as written, accents and case aside: no prefixes, no operators, no quoted phrases, so use a few plain words and try both singular and plural forms. If no publication holds them all, the search falls back to approximate spelling and says so in `note`. Narrow with `serie` (for example ENR for registration and inheritance duties, IR for income tax, RFPI for property income and capital gains); `kind` selects doctrine pages (default), news items, or all. Returns id, publication_id, title, kind, serie, valid_from and source_url, paged with `page` and `has_more`; never the text: read it with fr_get_bofip. Only publications in force today are available.";
 
 #[tool_router(router = search_bofip_router, vis = "pub(crate)")]
-impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine> LegifranceServer<C, A, K, D> {
+impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine, G: PublicGuidance>
+    LegifranceServer<C, A, K, D, G>
+{
     #[tool(
         name = "fr_search_bofip",
         title = "Search the tax doctrine (BOFiP)",

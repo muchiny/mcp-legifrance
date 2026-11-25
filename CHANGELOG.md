@@ -15,7 +15,27 @@ Rubriques (`docs/plan/06-qualite.md` §13.3) : `Added`, `Changed`, `Deprecated`,
 
 ## [Unreleased]
 
-Rien depuis `1.4.1`.
+Jalon MS (ADR-0033, AM-100) : les fiches pratiques de Service-Public.gouv.fr et d'Entreprendre.Service-Public.gouv.fr, lues dans l'archive du jour de la DILA, gardée en mémoire et cherchée sur la machine. `lock-descriptors --compare v1.4.1` relève deux ajouts : la version suivante est une mineure (1.5.0 proposée).
+
+### Added
+
+- `fr_search_service_public` : recherche dans les fiches pratiques et les dossiers de Service-Public.gouv.fr (`audience` `particuliers`, par défaut), d'Entreprendre.Service-Public.gouv.fr (`entreprendre`) ou des deux (`all`), par quelques mots cherchés dans les titres et les résumés, accents et casse mis à part ; un mot trouve aussi les mots plus longs qu'il commence. Rend l'identifiant, la nature, le titre, la place dans le site (`path`), la date de mise à jour et l'adresse de chaque page, jamais le texte ; `page` et `page_size` (1 à 50).
+- `fr_get_service_public` : une fiche (`F…`) ou un dossier (`N…`) par son identifiant, avec ses métadonnées, sa citation, son adresse et sa place dans le site. Pour une fiche, le texte avec la lecture progressive des autres outils (`detail`, `offset`, `max_chars`, `focus`) et `legal_references`, les textes de Légifrance sur lesquels elle s'appuie (50 au plus, avec l'identifiant quand un outil du serveur sait le lire). Pour un dossier, la liste de ses pages (`entries`).
+- Rien ne part que le téléchargement de l'archive du jour de chaque public, sur `lecomarquage.service-public.gouv.fr` (deux adresses fixées dans le code, `https` seul, aucune redirection suivie), au premier appel puis pour une revalidation après 24 heures : ni mot de recherche ni numéro de fiche. Sur une liaison lente, le premier appel peut répondre `[upstream_error] Service-Public archive is still downloading; retry in a minute.` ; le téléchargement continue.
+- Chaque réponse porte la mention de la licence propre au site du public (`attribution`), l'adresse, le nom et la date de l'archive lue (`source_files`, `source_file`), et une note qui rappelle qu'une fiche est un guide administratif, pas la loi, servi dans sa version du jour (`guidance_note`).
+- `LF_SERVICE_PUBLIC=on|off` (défaut `on`), mêmes règles que `LF_BOFIP` : coupée d'office en mode hors ligne, sauf `on` explicite ; toute autre valeur coupe la source et le signale comme un problème. Coupée, les deux outils répondent `[config_error]` sans aucune requête. Le bundle MCPB gagne le réglage `service_public`.
+- Nouveau crate `lf-adapter-service-public` : lecteur d'archive écrit pour le format mesuré (rien sur disque, plafonds par entrée, CRC-32 vérifié), lecture du XML par `quick-xml` (`DOCTYPE` et entités refusés) et index de recherche borné (100 000 mots distincts, 500 000 couples mot-page et 8 Mio de texte par public, mots coupés à 40 caractères ; au-delà, l'archive est refusée). Les téléchargements refusés, coupés ou trop lents qui se suivent espacent les tentatives (une minute, un quart d'heure, une heure, puis six heures ; une heure au plus pour un corps coupé ou un délai). L'âge d'une archive compte la mise en veille de la machine (horloge civile) ; pendant la revalidation d'une archive en sursis, les appels attendent 10 s au plus, puis reçoivent la précédente. Chaque chargement et chaque échec sont journalisés, sans adresse ni contenu. Aucun paquet tiers nouveau.
+
+### Changed
+
+- `fr_coverage`, à la surface v0.3 seulement : famille `SERVICE_PUBLIC`, après `BOFIP`, et lacune FR-108 (source active : recherche sur les titres et les résumés, version du jour, ni les associations) ou FR-109 (source coupée). Les réponses v0.1 et v0.2 ne changent pas, à l'octet. La métrique d'audit de `fr_coverage`, qui compte toutes les lacunes du domaine quelle que soit la surface, en compte une de plus.
+- Instructions du serveur (v0.3) : une ligne 6 cite les deux outils ; leur plafond passe de 3 700 à 4 000 caractères (AM-100, ADR-0033 décision 14).
+
+### Tool surface
+
+- Ajout : `fr_search_service_public` (« Search Service-Public practical sheets ») et `fr_get_service_public` (« Read a Service-Public sheet »). `lock-descriptors --compare v1.4.1` relève ces deux ajouts et les instructions reformulées ; les quinze autres outils ne changent pas. Il demande une version mineure.
+- `tools/list` : 42 492 → 49 792 octets (+7 300), sous le plafond relevé à 51 300 (règle d'AM-63 : mesure plus 3 %, arrondie à la centaine supérieure).
+- Instructions : 3 688 → 3 937 caractères, sous le plafond de 4 000.
 
 ## [1.4.1] - 2026-11-17
 

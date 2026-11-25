@@ -33,11 +33,11 @@ use lf_application::{
     audited::{AuditMode, AuditPolicy},
     budget::ResponseBudget,
     ports::{
-        ArticleAt, AuditError, AuditLog, AuditRecord, CorpusError, DoctrineError, LegalCorpus,
-        PisteEnvironment, TaxDoctrine,
+        ArticleAt, AuditError, AuditLog, AuditRecord, CorpusError, DoctrineError, GuidanceError,
+        GuidanceFound, GuidanceRead, LegalCorpus, PisteEnvironment, PublicGuidance, TaxDoctrine,
     },
-    service::{ConfigurationState, DoctrineSource, LegalService, ServiceSettings},
-    testing::{FakeCorpus, FakeDoctrine, FixedClock, MemoryAuditLog},
+    service::{ConfigurationState, DoctrineSource, GuidanceSource, LegalService, ServiceSettings},
+    testing::{FakeCorpus, FakeDoctrine, FakeGuidance, FixedClock, MemoryAuditLog},
 };
 use lf_domain::{
     date::{CivilDate, VersionDate},
@@ -46,6 +46,7 @@ use lf_domain::{
         Act, ArticleText, ArticleVersion, CodeListing, CompanyAgreement, Convention, Decision,
         Deliberation, RelatedLinks, SearchHit, SearchPage,
     },
+    guidance::{Audience, GuidanceQuery, SheetId},
     id::{AccoTextId, ArticleId, CnilTextId, DecisionId, KaliTextId, LegiTextId},
     search::{NumberQuery, SearchQuery},
 };
@@ -176,8 +177,22 @@ impl TaxDoctrine for SharedDoctrine {
     }
 }
 
+/// Source de Service-Public partagée : le service possède sa source, le test en garde une poignée.
+pub struct SharedGuidance(pub Arc<FakeGuidance>);
+
+impl PublicGuidance for SharedGuidance {
+    async fn search(&self, query: &GuidanceQuery) -> Result<GuidanceFound, GuidanceError> {
+        self.0.search(query).await
+    }
+
+    async fn get(&self, audience: Audience, id: &SheetId) -> Result<GuidanceRead, GuidanceError> {
+        self.0.get(audience, id).await
+    }
+}
+
 /// Le serveur monté sur les doubles partagés d'une [`Fixture`].
-pub type FixtureServer = LegifranceServer<SharedCorpus, SharedAudit, FixedClock, SharedDoctrine>;
+pub type FixtureServer =
+    LegifranceServer<SharedCorpus, SharedAudit, FixedClock, SharedDoctrine, SharedGuidance>;
 
 /// Un serveur de test et les poignées sur ce qu'il contient.
 ///
@@ -189,6 +204,9 @@ pub struct Fixture {
     /// Fausse source de doctrine (BOFiP) du service : programmer `push_search` et `push_get`,
     /// relire les appels. Sans réponse programmée, un appel rend une erreur lisible.
     pub doctrine: Arc<FakeDoctrine>,
+    /// Fausse source de Service-Public du service : programmer `push_search` et `push_get`,
+    /// relire les appels. Sans réponse programmée, un appel rend une erreur lisible.
+    pub guidance: Arc<FakeGuidance>,
     /// Journal d'audit en mémoire du service : relire les lignes (`records`).
     pub audit: Arc<MemoryAuditLog>,
     /// Réglages du service : audit strict, échéance de 60 s, bac à sable, identifiants configurés.
@@ -202,6 +220,7 @@ impl Default for Fixture {
         Self {
             corpus: Arc::new(FakeCorpus::new()),
             doctrine: Arc::new(FakeDoctrine::new()),
+            guidance: Arc::new(FakeGuidance::new()),
             audit: Arc::new(MemoryAuditLog::new()),
             settings: ServiceSettings {
                 policy: AuditPolicy {
@@ -210,11 +229,12 @@ impl Default for Fixture {
                     env: PisteEnvironment::Sandbox,
                     server_version: env!("CARGO_PKG_VERSION"),
                 },
-                // La source de doctrine est active, comme dans le binaire par défaut : le
-                // serveur enregistre ses deux outils.
+                // Les sources de doctrine et de Service-Public sont actives, comme dans le
+                // binaire par défaut.
                 configuration: ConfigurationState {
                     credentials_configured: true,
                     doctrine: DoctrineSource::Active,
+                    guidance: GuidanceSource::Active,
                     ..ConfigurationState::default()
                 },
                 budget: ResponseBudget,
@@ -254,7 +274,8 @@ impl Fixture {
             clock,
             self.settings.clone(),
         )
-        .with_doctrine(SharedDoctrine(Arc::clone(&self.doctrine)));
+        .with_doctrine(SharedDoctrine(Arc::clone(&self.doctrine)))
+        .with_guidance(SharedGuidance(Arc::clone(&self.guidance)));
         LegifranceServer::new(Arc::new(service))
     }
 

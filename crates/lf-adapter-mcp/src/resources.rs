@@ -299,6 +299,7 @@ mod tests {
                     has_problems: false,
                     local_snapshot: false,
                     doctrine: lf_domain::coverage::DoctrineSource::Active,
+                    guidance: lf_domain::coverage::GuidanceSource::NotServed,
                 },
                 &lf_domain::fond::Fond::ALL,
             ),

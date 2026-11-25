@@ -9,6 +9,7 @@ members = [
     "crates/lf-adapter-mcp",
     "crates/lf-adapter-dila",
     "crates/lf-adapter-bofip",
+    "crates/lf-adapter-service-public",
     "crates/lf-app",
     "xtask",
 ]
@@ -37,6 +38,7 @@ lf-adapter-audit = { path = "crates/lf-adapter-audit", version = "=1.4.1" }
 lf-adapter-mcp = { path = "crates/lf-adapter-mcp", version = "=1.4.1" }
 lf-adapter-dila = { path = "crates/lf-adapter-dila", version = "=1.4.1" }
 lf-adapter-bofip = { path = "crates/lf-adapter-bofip", version = "=1.4.1" }
+lf-adapter-service-public = { path = "crates/lf-adapter-service-public", version = "=1.4.1" }
 # externes : exigence au niveau mineur, correctif choisi par le verrou (règle d'âge, 02 §3.0.1) ;
 # default-features = false déclaré ici : au niveau d'un membre, l'héritage ne le respecte qu'à partir de 1.99
 thiserror = "2.0.21"

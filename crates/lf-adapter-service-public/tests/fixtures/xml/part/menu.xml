@@ -1,0 +1,843 @@
+<?xml version="1.0" encoding="UTF-8"?><Menu xsi:noNamespaceSchemaLocation="../Schemas/3.5/indexes/Menu.xsd" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:dc="http://purl.org/dc/elements/1.1/">
+<dc:date xmlns:dc="http://purl.org/dc/elements/1.1/">2026-11-22T10:20:20</dc:date>
+<Audience>Particuliers</Audience><ItemMenu type="Theme" ID="N19810">
+<Titre>Papiers - Citoyenneté - Élections</Titre><ItemMenu type="Sous-theme" ID="N31785">
+<Titre>État civil</Titre><ItemMenu type="Dossier" ID="N359">
+<Titre>Actes d'état civil</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N31784">
+<Titre>Livret de famille</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N31778">
+<Titre>Changement d'état civil</Titre>
+</ItemMenu>
+</ItemMenu>
+<ItemMenu type="Sous-theme" ID="N103">
+<Titre>Identité - Authentification</Titre><ItemMenu type="Dossier" ID="N358">
+<Titre>Carte d'identité</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N360">
+<Titre>Passeport</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N151">
+<Titre>Nom et prénom</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N365">
+<Titre>Certificat, copie, légalisation et conservation de documents</Titre>
+</ItemMenu>
+</ItemMenu>
+<ItemMenu type="Sous-theme" ID="N20070">
+<Titre>Citoyenneté</Titre><ItemMenu type="Dossier" ID="N30">
+<Titre>Anciens combattants</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N47">
+<Titre>Élections</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N23501">
+<Titre>Médailles et décorations officielles</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N24">
+<Titre>Recensement citoyen, JDC et Service national</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N13271">
+<Titre>Volontariats</Titre>
+</ItemMenu>
+</ItemMenu>
+<ItemMenu type="Sous-theme" ID="N20114">
+<Titre>Relations avec l'administration</Titre><ItemMenu type="Dossier" ID="N559">
+<Titre>Obligations de l'administration</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N20312">
+<Titre>Recours administratif, défenseur des droits, ...</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N560">
+<Titre>Agir en justice contre l'administration</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N31725">
+<Titre>Mesures contraignantes de l'administration</Titre>
+</ItemMenu>
+</ItemMenu>
+<ItemMenu type="Sous-theme" ID="N31726">
+<Titre>Fichiers et protection de la vie privée</Titre><ItemMenu type="Dossier" ID="N31786">
+<Titre>Fichiers judiciaires et de police judiciaire</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N31727">
+<Titre>Protection des données personnelles et de l'image</Titre>
+</ItemMenu>
+</ItemMenu>
+<VoirAussi important="non"><Dossier ID="N111" audience="Particuliers"><Titre>Nationalité française</Titre></Dossier><Dossier ID="N110" audience="Particuliers"><Titre>Titres, cartes de séjour et documents de circulation pour étranger en France</Titre></Dossier><Dossier ID="N367" audience="Particuliers"><Titre>Carte grise (certificat d'immatriculation)</Titre></Dossier><Dossier ID="N530" audience="Particuliers"><Titre>Permis de conduire</Titre></Dossier></VoirAussi></ItemMenu>
+<ItemMenu type="Theme" ID="N19805">
+<Titre>Famille - Scolarité</Titre><ItemMenu type="Sous-theme" ID="N20092">
+<Titre>Couple</Titre><ItemMenu type="Dossier" ID="N143">
+<Titre>Union libre</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N144">
+<Titre>Pacte civil de solidarité (Pacs)</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N142">
+<Titre>Mariage</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N159">
+<Titre>Divorce, séparation de corps</Titre>
+</ItemMenu>
+</ItemMenu>
+<ItemMenu type="Sous-theme" ID="N127">
+<Titre>Enfant</Titre><ItemMenu type="Dossier" ID="N133">
+<Titre>Adoption</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N15660">
+<Titre>Naissance et filiation</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N135">
+<Titre>Autorité parentale</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N156">
+<Titre>Allocations destinées aux familles</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N546">
+<Titre>Bafa et BAFD</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N18775">
+<Titre>Séparation des parents</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N136">
+<Titre>Placement d'un enfant</Titre>
+</ItemMenu>
+</ItemMenu>
+<ItemMenu type="Sous-theme" ID="N20265">
+<Titre>Scolarité</Titre><ItemMenu type="Dossier" ID="N23493">
+<Titre>Obligation scolaire</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N54">
+<Titre>École primaire (maternelle et élémentaire)</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N56">
+<Titre>Collège et lycée</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N67">
+<Titre>Aides financières pour la scolarité</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N57">
+<Titre>École et handicap</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N10481">
+<Titre>Diplômes</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N175">
+<Titre>Parcours éducatifs alternatifs</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N31347">
+<Titre>Scolarité en France d'un enfant arrivant de l'étranger</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N23767">
+<Titre>Scolarité à l'étranger d'un enfant français</Titre>
+</ItemMenu>
+</ItemMenu>
+<ItemMenu type="Sous-theme" ID="N20400">
+<Titre>Études supérieures</Titre><ItemMenu type="Dossier" ID="N58">
+<Titre>Inscription</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N20398">
+<Titre>Aides et bourses</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N31346">
+<Titre>Étudiant étranger en France</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N13511">
+<Titre>Étudier à l'étranger</Titre>
+</ItemMenu>
+</ItemMenu>
+<ItemMenu type="Sous-theme" ID="N20091">
+<Titre>Protection des personnes</Titre><ItemMenu type="Dossier" ID="N155">
+<Titre>Protection juridique (tutelle, curatelle...)</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N42">
+<Titre>Disparition et enlèvement</Titre>
+</ItemMenu>
+</ItemMenu>
+<ItemMenu type="Sous-theme" ID="N31161">
+<Titre>Décès</Titre><ItemMenu type="Dossier" ID="N165">
+<Titre>Déclaration de décès, obsèques et sépulture</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N31163">
+<Titre>Rentes et capitaux versés en cas de décès d'un salarié du secteur privé</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N32578">
+<Titre>Rentes et capitaux versés en cas de décès d'un agent public</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N378">
+<Titre>Pensions de réversion, d'invalidité et d'orphelin au décès d'un salarié</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N32575">
+<Titre>Pension de réversion et pension d'orphelin au décès d'un fonctionnaire</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N31650">
+<Titre>Don du corps - Prélèvement d'organes</Titre>
+</ItemMenu>
+</ItemMenu>
+<ItemMenu type="Sous-theme" ID="N20090">
+<Titre>Succession</Titre><ItemMenu type="Dossier" ID="N173">
+<Titre>Héritage : ordre et droits des héritiers</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N31162">
+<Titre>Donation</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N16265">
+<Titre>Testament</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N171">
+<Titre>Règlement d'une succession</Titre>
+</ItemMenu>
+</ItemMenu>
+</ItemMenu>
+<ItemMenu type="Theme" ID="N19811">
+<Titre>Social - Santé</Titre><ItemMenu type="Sous-theme" ID="N20274">
+<Titre>Aides sociales</Titre><ItemMenu type="Dossier" ID="N19775">
+<Titre>Revenu de solidarité active (RSA)</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N31477">
+<Titre>Prime d'activité</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N32475">
+<Titre>Autres aides</Titre>
+</ItemMenu>
+</ItemMenu>
+<ItemMenu type="Sous-theme" ID="N461">
+<Titre>Chômage</Titre><ItemMenu type="Dossier" ID="N549">
+<Titre>Démarches auprès de France Travail (anciennement Pôle emploi)</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N178">
+<Titre>Allocation chômage d'aide au retour à l'emploi (ARE)</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N31131">
+<Titre>Aides à la formation</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N31132">
+<Titre>Aides à la création ou la reprise d'entreprise</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N31133">
+<Titre>Aides à la reprise d'activité</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N31002">
+<Titre>Chômage partiel</Titre>
+</ItemMenu>
+</ItemMenu>
+<ItemMenu type="Sous-theme" ID="N20272">
+<Titre>Sécurité sociale</Titre><ItemMenu type="Dossier" ID="N31750">
+<Titre>Affiliation</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N418">
+<Titre>Remboursement</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N20286">
+<Titre>Mutuelle - Complémentaire santé</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N31348">
+<Titre>Assurance maladie d'un étranger en France</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N423">
+<Titre>Assurance maladie et santé d'un Français à l'étranger</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N561">
+<Titre>Litiges avec la Sécurité sociale</Titre>
+</ItemMenu>
+</ItemMenu>
+<ItemMenu type="Sous-theme" ID="N20325">
+<Titre>Droits des patients</Titre><ItemMenu type="Dossier" ID="N17179">
+<Titre>Information du patient : dossier médical, montant des prestations, ...</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N10253">
+<Titre>Préjudice médical</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N441">
+<Titre>Don du sang - Don d'organe d'une personne vivante</Titre>
+</ItemMenu>
+</ItemMenu>
+<ItemMenu type="Sous-theme" ID="N20180">
+<Titre>Santé</Titre><ItemMenu type="Dossier" ID="N437">
+<Titre>Addictions</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N31950">
+<Titre>Covid-19</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N435">
+<Titre>Contraception - IVG</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N439">
+<Titre>Grossesse, assistance à la procréation</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N432">
+<Titre>Hospitalisation et soins à domicile</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N434">
+<Titre>Prévention - Vaccinations</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N31526">
+<Titre>Santé de l'enfant</Titre>
+</ItemMenu>
+</ItemMenu>
+<ItemMenu type="Sous-theme" ID="N32576">
+<Titre>Invalidité</Titre><ItemMenu type="Dossier" ID="N31700">
+<Titre>Invalidité du salarié dans le secteur privé</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N32577">
+<Titre>Invalidité dans le secteur public</Titre>
+</ItemMenu>
+</ItemMenu>
+<ItemMenu type="Sous-theme" ID="N20270">
+<Titre>Handicap</Titre><ItemMenu type="Dossier" ID="N12230">
+<Titre>Allocations et aides (AAH, AEEH, PCH...)</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N332">
+<Titre>Hébergement</Titre>
+</ItemMenu>
+</ItemMenu>
+<ItemMenu type="Sous-theme" ID="N32626">
+<Titre>Personnes âgées</Titre><ItemMenu type="Dossier" ID="N392">
+<Titre>Allocations et aides aux personnes âgées</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N333">
+<Titre>Hébergement des personnes âgées</Titre>
+</ItemMenu>
+</ItemMenu>
+<ItemMenu type="Sous-theme" ID="N20271">
+<Titre>Hébergement social</Titre><ItemMenu type="Dossier" ID="N17160">
+<Titre>Hébergement social</Titre>
+</ItemMenu>
+</ItemMenu>
+<VoirAussi important="non"><Dossier ID="N57" audience="Particuliers"><Titre>École et handicap</Titre></Dossier><Dossier ID="N451" audience="Particuliers"><Titre>Handicap et emploi dans le secteur privé</Titre></Dossier></VoirAussi></ItemMenu>
+<ItemMenu type="Theme" ID="N19806">
+<Titre>Travail - Formation</Titre><ItemMenu type="Sous-theme" ID="N19961">
+<Titre>Recrutement</Titre><ItemMenu type="Dossier" ID="N449">
+<Titre>Dans le secteur privé</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N500">
+<Titre>Dans la fonction publique</Titre>
+</ItemMenu>
+</ItemMenu>
+<ItemMenu type="Sous-theme" ID="N19963">
+<Titre>Rémunération</Titre><ItemMenu type="Dossier" ID="N474">
+<Titre>Dans le secteur privé</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N511">
+<Titre>Dans la fonction publique</Titre>
+</ItemMenu>
+</ItemMenu>
+<ItemMenu type="Sous-theme" ID="N19962">
+<Titre>Contrats et carrière</Titre><ItemMenu type="Dossier" ID="N19871">
+<Titre>Contrats de travail dans le secteur privé</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N443">
+<Titre>Contrats d'insertion</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N11240">
+<Titre>Alternance</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N505">
+<Titre>Carrière dans la fonction publique</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N31057">
+<Titre>Mobilité dans la fonction publique</Titre>
+</ItemMenu>
+</ItemMenu>
+<ItemMenu type="Sous-theme" ID="N19964">
+<Titre>Congés</Titre><ItemMenu type="Dossier" ID="N510">
+<Titre>Dans le secteur privé</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N19978">
+<Titre>Dans la fonction publique</Titre>
+</ItemMenu>
+</ItemMenu>
+<ItemMenu type="Sous-theme" ID="N20176">
+<Titre>Formation</Titre><ItemMenu type="Dossier" ID="N177">
+<Titre>Formation des salariés du secteur privé</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N186">
+<Titre>Formation des agents de la fonction publique</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N198">
+<Titre>Formation des personnes handicapées</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N31850">
+<Titre>Stage en entreprise</Titre>
+</ItemMenu>
+</ItemMenu>
+<ItemMenu type="Sous-theme" ID="N19965">
+<Titre>Santé, sécurité et conditions de travail</Titre><ItemMenu type="Dossier" ID="N451">
+<Titre>Handicap et emploi (secteur privé)</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N492">
+<Titre>Conditions de travail (secteur privé)</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N526">
+<Titre>Arrêt de travail (secteur privé)</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N431">
+<Titre>Conditions de travail (fonction publique)</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N512">
+<Titre>Arrêt de travail (fonction publique)</Titre>
+</ItemMenu>
+</ItemMenu>
+<ItemMenu type="Sous-theme" ID="N19966">
+<Titre>Relations individuelles et collectives</Titre><ItemMenu type="Dossier" ID="N518">
+<Titre>Représentation du personnel dans l'entreprise</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N470">
+<Titre>Conflits du travail dans le secteur privé</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N503">
+<Titre>Représentants du personnel dans la fonction publique</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N102">
+<Titre>Conflits du travail dans la fonction publique</Titre>
+</ItemMenu>
+</ItemMenu>
+<ItemMenu type="Sous-theme" ID="N31777">
+<Titre>Temps de travail</Titre><ItemMenu type="Dossier" ID="N458">
+<Titre>Dans le secteur privé</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N20276">
+<Titre>Dans la fonction publique</Titre>
+</ItemMenu>
+</ItemMenu>
+<ItemMenu type="Sous-theme" ID="N19967">
+<Titre>Quitter son emploi</Titre><ItemMenu type="Dossier" ID="N19611">
+<Titre>Rupture du contrat de travail dans le secteur privé</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N481">
+<Titre>Licenciement économique</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N480">
+<Titre>Licenciement d'un salarié du secteur privé pour motif personnel</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N515">
+<Titre>Quitter la fonction publique</Titre>
+</ItemMenu>
+</ItemMenu>
+<ItemMenu type="Sous-theme" ID="N453">
+<Titre>Particulier employeur</Titre><ItemMenu type="Dossier" ID="N19602">
+<Titre>Aide à domicile (services à la personne)</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N20383">
+<Titre>Assistante maternelle</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N499">
+<Titre>Salarié au pair, jeune au pair et stagiaire aide familial étranger</Titre>
+</ItemMenu>
+</ItemMenu>
+<ItemMenu type="Sous-theme" ID="N20166">
+<Titre>Retraite</Titre><ItemMenu type="Dossier" ID="N381">
+<Titre>Retraite d'un salarié du secteur privé</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N379">
+<Titre>Retraite d'un agent public</Titre>
+</ItemMenu>
+</ItemMenu>
+<VoirAussi important="non"><Dossier ID="N120" audience="Particuliers"><Titre>Vivre à l'étranger</Titre></Dossier><Dossier ID="N549" audience="Particuliers"><Titre>Chômage : démarches auprès de France Travail (anciennement Pôle emploi)</Titre></Dossier></VoirAussi></ItemMenu>
+<ItemMenu type="Theme" ID="N19808">
+<Titre>Logement</Titre><ItemMenu type="Sous-theme" ID="N20355">
+<Titre>Achat immobilier</Titre><ItemMenu type="Dossier" ID="N312">
+<Titre>Achat d'un terrain</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N23245">
+<Titre>Achat ou vente d'un logement</Titre>
+</ItemMenu>
+</ItemMenu>
+<ItemMenu type="Sous-theme" ID="N305">
+<Titre>Aides financières</Titre><ItemMenu type="Dossier" ID="N20360">
+<Titre>Aides personnelles au logement</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N20359">
+<Titre>Aide pour le dépôt de garantie ou la caution d'un logement en location</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N23557">
+<Titre>Aides au paiement des factures : eau, téléphone, électricité, gaz</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N321">
+<Titre>Aides et prêts pour l'amélioration et la rénovation énergétique de l'habitat</Titre>
+</ItemMenu>
+</ItemMenu>
+<ItemMenu type="Sous-theme" ID="N289">
+<Titre>Bail d’habitation</Titre><ItemMenu type="Dossier" ID="N292">
+<Titre>Devenir locataire d'un logement privé</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N31802">
+<Titre>Accéder à un logement social</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N349">
+<Titre>Contrat de location (bail)</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N337">
+<Titre>Loyer</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N31059">
+<Titre>Obligations du bailleur</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N19424">
+<Titre>Obligations du locataire</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N339">
+<Titre>Fin du bail</Titre>
+</ItemMenu>
+</ItemMenu>
+<ItemMenu type="Sous-theme" ID="N10702">
+<Titre>Expropriation - Préemption</Titre><ItemMenu type="Dossier" ID="N326">
+<Titre>Expropriation</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N21886">
+<Titre>Droit de préemption urbain (DPU)</Titre>
+</ItemMenu>
+</ItemMenu>
+<ItemMenu type="Sous-theme" ID="N323">
+<Titre>Protection et sécurité de l'habitat</Titre><ItemMenu type="Dossier" ID="N20356">
+<Titre>Risques sanitaires et sécurité du logement</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N20591">
+<Titre>Diagnostic immobilier</Titre>
+</ItemMenu>
+</ItemMenu>
+<ItemMenu type="Sous-theme" ID="N557">
+<Titre>Urbanisme</Titre><ItemMenu type="Dossier" ID="N319">
+<Titre>Autorisations d'urbanisme</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N31344">
+<Titre>Travaux</Titre>
+</ItemMenu>
+</ItemMenu>
+<ItemMenu type="Sous-theme" ID="N31337">
+<Titre>Copropriété</Titre><ItemMenu type="Dossier" ID="N31338">
+<Titre>Organisation</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N31339">
+<Titre>Documents</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N31340">
+<Titre>Charges</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N31341">
+<Titre>Assemblée générale des copropriétaires</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N31064">
+<Titre>Droits des copropriétaires</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N357">
+<Titre>Copropriété en difficulté</Titre>
+</ItemMenu>
+</ItemMenu>
+<ItemMenu type="Sous-theme" ID="N31029">
+<Titre>Vie pratique dans un logement</Titre><ItemMenu type="Dossier" ID="N31030">
+<Titre>Vie pratique dans sa maison</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N356">
+<Titre>Nuisances de voisinage</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N31125">
+<Titre>Déchets</Titre>
+</ItemMenu>
+</ItemMenu>
+<VoirAussi important="non"><Dossier ID="N44" audience="Particuliers"><Titre>Assurance habitation</Titre></Dossier><Dossier ID="N333" audience="Particuliers"><Titre>Hébergement des personnes âgées</Titre></Dossier><Dossier ID="N332" audience="Particuliers"><Titre>Hébergement d'une personne en situation de handicap</Titre></Dossier><Dossier ID="N17160" audience="Particuliers"><Titre>Hébergement social</Titre></Dossier></VoirAussi></ItemMenu>
+<ItemMenu type="Theme" ID="N19812">
+<Titre>Transports - Mobilité</Titre><ItemMenu type="Dossier" ID="N367">
+<Titre>Carte grise</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N530">
+<Titre>Permis de conduire</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N18918">
+<Titre>Infractions routières</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N31200">
+<Titre>Contrôle technique</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N18131">
+<Titre>Mesures antipollution</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N19126">
+<Titre>Conduire en France avec un permis étranger</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N31345">
+<Titre>Conduire à l'étranger</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N84">
+<Titre>Voyage en avion</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N20444">
+<Titre>Cartes de transport</Titre>
+</ItemMenu>
+<VoirAussi important="non"><Dossier ID="N32" audience="Particuliers"><Titre>Assurance véhicule</Titre></Dossier><Fiche ID="F24254" audience="Particuliers"><Titre>Achat d'un véhicule</Titre></Fiche><Fiche ID="F308" audience="Particuliers"><Titre>Circulation à trottinette électrique, hoverboard, gyropode, rollers ou skateboard</Titre></Fiche></VoirAussi></ItemMenu>
+<ItemMenu type="Theme" ID="N19803">
+<Titre>Argent - Impôts - Consommation</Titre><ItemMenu type="Sous-theme" ID="N20263">
+<Titre>Assurance</Titre><ItemMenu type="Dossier" ID="N44">
+<Titre>Assurance habitation</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N32">
+<Titre>Assurance auto</Titre>
+</ItemMenu>
+</ItemMenu>
+<ItemMenu type="Sous-theme" ID="N20096">
+<Titre>Banque</Titre><ItemMenu type="Dossier" ID="N98">
+<Titre>Comptes bancaires</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N31675">
+<Titre>Opérations bancaires (virement, prélèvement, mandat...)</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N85">
+<Titre>Fichiers bancaires</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N91">
+<Titre>Moyens de paiements (carte, chèque ou espèces)</Titre>
+</ItemMenu>
+</ItemMenu>
+<ItemMenu type="Sous-theme" ID="N20154">
+<Titre>Consommation</Titre><ItemMenu type="Dossier" ID="N24033">
+<Titre>Information et protection du consommateur</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N10515">
+<Titre>Achat à distance</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N24036">
+<Titre>Prestations de service</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N31164">
+<Titre>Garanties</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N20278">
+<Titre>Communications électroniques (téléphone, internet, télévision)</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N24253">
+<Titre>Véhicule</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N33">
+<Titre>Alimentation, restauration</Titre>
+</ItemMenu>
+</ItemMenu>
+<ItemMenu type="Sous-theme" ID="N20369">
+<Titre>Crédit et surendettement</Titre><ItemMenu type="Dossier" ID="N96">
+<Titre>Crédit à la consommation</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N20373">
+<Titre>Crédit immobilier</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N99">
+<Titre>Surendettement</Titre>
+</ItemMenu>
+</ItemMenu>
+<ItemMenu type="Sous-theme" ID="N20375">
+<Titre>Épargne</Titre><ItemMenu type="Dossier" ID="N20376">
+<Titre>Livrets, plans et comptes d'épargne</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N89">
+<Titre>Assurance vie</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N517">
+<Titre>Épargne salariale</Titre>
+</ItemMenu>
+</ItemMenu>
+<ItemMenu type="Sous-theme" ID="N20073">
+<Titre>Impôts, taxes et douane</Titre><ItemMenu type="Dossier" ID="N247">
+<Titre>Impôt sur le revenu : déclaration et revenus à déclarer</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N19785">
+<Titre>Impôt sur le revenu : déductions, réductions et crédits d'impôt</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N219">
+<Titre>Impôt sur le revenu : calcul et paiement</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N206">
+<Titre>Impôts locaux</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N20074">
+<Titre>Impôt sur la fortune immobilière (IFI)</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N31160">
+<Titre>Droits de succession et de donation</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N31080">
+<Titre>Saisir l'administration fiscale (difficultés de paiement, réclamation...)</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N17580">
+<Titre>Prélèvements sociaux (CSG, CRDS)</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N230">
+<Titre>Douane</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N119">
+<Titre>Impôt des résidents à l'étranger</Titre>
+</ItemMenu>
+</ItemMenu>
+<VoirAussi important="non"><Dossier ID="N31163" audience="Particuliers"><Titre>Rentes et capitaux versés en cas de décès d'un salarié du secteur privé</Titre></Dossier><Dossier ID="N23245" audience="Particuliers"><Titre>Achat ou vente d'un logement</Titre></Dossier><Dossier ID="N312" audience="Particuliers"><Titre>Achat d'un terrain</Titre></Dossier><Dossier ID="N474" audience="Particuliers"><Titre>Rémunération dans le secteur privé</Titre></Dossier><Dossier ID="N511" audience="Particuliers"><Titre>Rémunération dans la fonction publique</Titre></Dossier></VoirAussi></ItemMenu>
+<ItemMenu type="Theme" ID="N19807">
+<Titre>Justice</Titre><ItemMenu type="Sous-theme" ID="N20260">
+<Titre>Organisation de la justice</Titre><ItemMenu type="Dossier" ID="N261">
+<Titre>Accès au droit et à la justice</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N279">
+<Titre>Acteurs du monde judiciaire</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N253">
+<Titre>Juridictions</Titre>
+</ItemMenu>
+</ItemMenu>
+<ItemMenu type="Sous-theme" ID="N271">
+<Titre>Procédures judiciaires</Titre><ItemMenu type="Dossier" ID="N269">
+<Titre>Affaire civile</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N263">
+<Titre>Affaire pénale</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N259">
+<Titre>Contestation d'un jugement</Titre>
+</ItemMenu>
+</ItemMenu>
+<ItemMenu type="Sous-theme" ID="N20326">
+<Titre>Infractions</Titre><ItemMenu type="Dossier" ID="N19681">
+<Titre>Violence - Atteinte à l'intégrité</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N286">
+<Titre>Discrimination</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N31146">
+<Titre>Harcèlement</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N283">
+<Titre>Vol - Vandalisme - Escroquerie</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N31126">
+<Titre>Injure - Diffamation - Incitation à la haine</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N31138">
+<Titre>Arnaques sur internet (THESEE, Pharos ...)</Titre>
+</ItemMenu>
+</ItemMenu>
+<ItemMenu type="Sous-theme" ID="N20334">
+<Titre>Sanctions pénales</Titre><ItemMenu type="Dossier" ID="N275">
+<Titre>Condamnations et peines</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N276">
+<Titre>Prison</Titre>
+</ItemMenu>
+</ItemMenu>
+<ItemMenu type="Sous-theme" ID="N20385">
+<Titre>Réparation du préjudice</Titre><ItemMenu type="Dossier" ID="N19679">
+<Titre>Indemnisation du préjudice</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N277">
+<Titre>Saisies et recouvrements</Titre>
+</ItemMenu>
+</ItemMenu>
+<ItemMenu type="Sous-theme" ID="N20279">
+<Titre>Justice des mineurs</Titre><ItemMenu type="Dossier" ID="N260">
+<Titre>Mineur victime</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N23248">
+<Titre>Justice pénale des mineurs</Titre>
+</ItemMenu>
+</ItemMenu>
+<VoirAussi important="non"><Dossier ID="N42" audience="Particuliers"><Titre>Disparition et enlèvement de personnes</Titre></Dossier><Dossier ID="N159" audience="Particuliers"><Titre>Divorce, séparation de corps</Titre></Dossier><Dossier ID="N470" audience="Particuliers"><Titre>Conflits du travail dans le secteur privé</Titre></Dossier><Dossier ID="N102" audience="Particuliers"><Titre>Conflits du travail dans la fonction publique</Titre></Dossier><Dossier ID="N560" audience="Particuliers"><Titre>Agir en justice contre l'administration</Titre></Dossier><Dossier ID="N561" audience="Particuliers"><Titre>Litiges avec la Sécurité sociale</Titre></Dossier></VoirAussi></ItemMenu>
+<ItemMenu type="Theme" ID="N19804">
+<Titre>Étranger - Europe</Titre><ItemMenu type="Sous-theme" ID="N20306">
+<Titre>Étranger en France</Titre><ItemMenu type="Dossier" ID="N105">
+<Titre>Entrée en France</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N11165">
+<Titre>Installation en France d'une famille étrangère</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N106">
+<Titre>Demande d'asile (réfugié, protection subsidiaire, apatride)</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N107">
+<Titre>Travail en France</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N110">
+<Titre>Titre de séjour et document de circulation</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N111">
+<Titre>Nationalité française</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N109">
+<Titre>Éloignement (expulsion, OQTF...)</Titre>
+</ItemMenu>
+</ItemMenu>
+<ItemMenu type="Sous-theme" ID="N20273">
+<Titre>Français à l'étranger</Titre><ItemMenu type="Dossier" ID="N31336">
+<Titre>Voyager à l'étranger</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N120">
+<Titre>Vivre à l'étranger</Titre>
+</ItemMenu>
+</ItemMenu>
+</ItemMenu>
+<ItemMenu type="Theme" ID="N19809">
+<Titre>Loisirs - Sports - Culture</Titre><ItemMenu type="Sous-theme" ID="N19969">
+<Titre>Chasse et pêche</Titre><ItemMenu type="Dossier" ID="N553">
+<Titre>Chasse</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N554">
+<Titre>Pêche</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N287">
+<Titre>Armes</Titre>
+</ItemMenu>
+</ItemMenu>
+<ItemMenu type="Sous-theme" ID="N150">
+<Titre>Temps libre</Titre><ItemMenu type="Dossier" ID="N18944">
+<Titre>Animal de compagnie</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N184">
+<Titre>Sport</Titre>
+</ItemMenu>
+</ItemMenu>
+<ItemMenu type="Sous-theme" ID="N168">
+<Titre>Vacances</Titre><ItemMenu type="Dossier" ID="N19104">
+<Titre>Meublé de tourisme</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N31343">
+<Titre>Aides aux vacances</Titre>
+</ItemMenu>
+</ItemMenu>
+<VoirAussi important="non"><Dossier ID="N20278" audience="Particuliers"><Titre>Communications électroniques (téléphone, internet, télévision)</Titre></Dossier><Dossier ID="N546" audience="Particuliers"><Titre>Bafa et BAFD</Titre></Dossier></VoirAussi></ItemMenu>
+<ItemMenu type="Theme" ID="N31931">
+<Titre>Associations, fondations et fonds de dotation</Titre><ItemMenu type="Sous-theme" ID="N31975">
+<Titre>Formalités administratives d'une association</Titre><ItemMenu type="Dossier" ID="N19554">
+<Titre>Création</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N21962">
+<Titre>Évolutions</Titre>
+</ItemMenu>
+</ItemMenu>
+<ItemMenu type="Sous-theme" ID="N31976">
+<Titre>Fonctionnement d'une association</Titre><ItemMenu type="Dossier" ID="N19590">
+<Titre>Dirigeants et responsables</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N22150">
+<Titre>Bénévoles, volontaires et salariés</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N31331">
+<Titre>Assurance et responsabilité</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N31332">
+<Titre>Organisation d'événements</Titre>
+</ItemMenu>
+</ItemMenu>
+<ItemMenu type="Sous-theme" ID="N31977">
+<Titre>Financement et fiscalité d'une association</Titre><ItemMenu type="Dossier" ID="N21960">
+<Titre>Collecte de fonds (cotisations, dons, subventions)</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N22179">
+<Titre>Activités commerciales (buvettes, loteries, braderies)</Titre>
+</ItemMenu>
+</ItemMenu>
+<ItemMenu type="Sous-theme" ID="N31978">
+<Titre>Associations spécifiques et fondations</Titre><ItemMenu type="Dossier" ID="N31028">
+<Titre>Associations reconnues d'utilité publique et fondations</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N558">
+<Titre>Associations sous régime légal spécial</Titre>
+</ItemMenu>
+<ItemMenu type="Dossier" ID="N19508">
+<Titre>Associations représentatives</Titre>
+</ItemMenu>
+</ItemMenu>
+</ItemMenu>
+</Menu>

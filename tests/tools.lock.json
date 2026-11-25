@@ -7,9 +7,9 @@
   },
   "eras_identical": true,
   "instructions": {
-    "chars": 3688,
-    "sha256": "51b46055015c207191901ab14227d167560f796edf3580ea24fa816623af7321",
-    "text": "French law from Légifrance through the official PISTE API (read-only): consolidated laws and decrees (LODA), codes (CODE), Cour de cassation and courts of appeal (JURI), Conseil constitutionnel (CONSTIT), Conseil d'État and administrative courts (CETAT), CNIL deliberations (CNIL), collective labour agreements (KALI) and company agreements (ACCO). Use them for any question on French law or case law.\n\n## Workflow\n1. Find: `fr_search` searches one fond, paged with `page` and `has_more`; `fr_search_all` returns a few hits from several fonds. `fr_resolve` turns a free-text citation (code article, law number, ECLI, case number) into Legifrance ids.\n2. Read by id prefix: LEGITEXT -> `fr_get_act` (metadata and table of contents); LEGIARTI or KALIARTI -> `fr_get_text`; JURITEXT, CONSTEXT or CETATEXT -> `fr_get_decision`; CNILTEXT -> `fr_get_deliberation`; KALITEXT -> `fr_get_convention`; ACCOTEXT -> `fr_get_company_agreement` (metadata only: the full text is a .docx on Légifrance).\n3. Check and navigate: `fr_verify_citations` checks every citation of a draft against the official record; `fr_get_related` lists what an article or a decision cites or is cited by; `fr_diff_article` compares two versions of an article.\n4. Limits: `fr_coverage` says what this server does not cover and whether it runs on the PISTE sandbox.\n5. Tax doctrine: `fr_search_bofip` then `fr_get_bofip` read BOFiP, the tax administration's published doctrine: its reading of tax law, not the law itself, and only what is in force today.\n\n## Long texts\n`fr_get_text`, `fr_get_decision` and `fr_get_deliberation` return a short summary by default. A summary is never the whole text: pass `detail=\"full\"` before quoting a threshold, amount or rate; while `next_offset` is present, call again with `offset` set to it. To reach the relevant part directly, pass `focus` with a few words: you get the best passages and their `offset`.\n\n## Hard rules\n- Cite every source with its `citation` and `source_url`; for case law add the `ecli` when present.\n- Never invent an id, an ECLI, an ELI or a citation: take each one from tool output. Many CAA and TA decisions have no ECLI.\n- ELI: none from the API for legislation. `source_url` is the stable Légifrance page, not an ELI; an `eli` field appears only when the API provides one.\n- Attribution: Source : Légifrance / DILA — Licence Ouverte 2.0. When you reuse the data, give this source and the consultation date (`consulted_on` in `fr_coverage`).\n- Versions default to today's date in Paris; to get the law in force on another day, pass `date` to `fr_get_act` (`version_date` in `fr_search`) as YYYY-MM-DD, then read the article ids of that version with `fr_get_text`. Texts are verbatim (table cells are joined with \" | \"): this server does not decide whether a provision applies to a case.\n- `etat`: VIGUEUR, VIGUEUR_ETEN, VIGUEUR_NON_ETEN, ABROGE_DIFF in force; VIGUEUR_DIFF not yet; MODIFIE, ABROGE, PERIME no longer; DENONCE may still apply (list: `etat` field).\n- An empty result does not mean the law is silent: call `fr_coverage` and tell the user what is missing.\n\n## Errors\nA failed call returns isError with a text that starts with a code:\n- `[invalid_arg]` an argument is missing or malformed: fix it as the message says.\n- `[not_found]` nothing exists for that id: search again.\n- `[rate_limited]` PISTE quota reached: wait the delay given, then retry.\n- `[upstream_error]` Légifrance/PISTE failure: retry if the message asks, else report it.\n- `[config_error]` credentials or settings are missing or rejected: ask the user to fix the configuration.\n- `[audit_error]` the local audit log could not be written, so the result was withheld: tell the user."
+    "chars": 3937,
+    "sha256": "5299df7b0e40a756d19d83268246d257e0feb4a09f70bc3e13344dfa4decb24c",
+    "text": "French law from Légifrance through the official PISTE API (read-only): consolidated laws and decrees (LODA), codes (CODE), Cour de cassation and courts of appeal (JURI), Conseil constitutionnel (CONSTIT), Conseil d'État and administrative courts (CETAT), CNIL deliberations (CNIL), collective labour agreements (KALI) and company agreements (ACCO). Use them for any question on French law or case law.\n\n## Workflow\n1. Find: `fr_search` searches one fond, paged with `page` and `has_more`; `fr_search_all` returns a few hits from several fonds. `fr_resolve` turns a free-text citation (code article, law number, ECLI, case number) into Legifrance ids.\n2. Read by id prefix: LEGITEXT -> `fr_get_act` (metadata and table of contents); LEGIARTI or KALIARTI -> `fr_get_text`; JURITEXT, CONSTEXT or CETATEXT -> `fr_get_decision`; CNILTEXT -> `fr_get_deliberation`; KALITEXT -> `fr_get_convention`; ACCOTEXT -> `fr_get_company_agreement` (metadata only: the full text is a .docx on Légifrance).\n3. Check and navigate: `fr_verify_citations` checks every citation of a draft against the official record; `fr_get_related` lists what an article or a decision cites or is cited by; `fr_diff_article` compares two versions of an article.\n4. Limits: `fr_coverage` says what this server does not cover and whether it runs on the PISTE sandbox.\n5. Tax doctrine: `fr_search_bofip` then `fr_get_bofip` read BOFiP, the tax administration's published doctrine: its reading of tax law, not the law itself, and only what is in force today.\n6. Public guidance: `fr_search_service_public` then `fr_get_service_public` read the Service-Public practical sheets (DILA): plain-language administrative guidance, not the law; a sheet lists in `legal_references` the Legifrance texts it relies on.\n\n## Long texts\n`fr_get_text`, `fr_get_decision` and `fr_get_deliberation` return a short summary by default. A summary is never the whole text: pass `detail=\"full\"` before quoting a threshold, amount or rate; while `next_offset` is present, call again with `offset` set to it. To reach the relevant part directly, pass `focus` with a few words: you get the best passages and their `offset`.\n\n## Hard rules\n- Cite every source with its `citation` and `source_url`; for case law add the `ecli` when present.\n- Never invent an id, an ECLI, an ELI or a citation: take each one from tool output. Many CAA and TA decisions have no ECLI.\n- ELI: none from the API for legislation. `source_url` is the stable Légifrance page, not an ELI; an `eli` field appears only when the API provides one.\n- Attribution: Source : Légifrance / DILA — Licence Ouverte 2.0. When you reuse the data, give this source and the consultation date (`consulted_on` in `fr_coverage`).\n- Versions default to today's date in Paris; to get the law in force on another day, pass `date` to `fr_get_act` (`version_date` in `fr_search`) as YYYY-MM-DD, then read the article ids of that version with `fr_get_text`. Texts are verbatim (table cells are joined with \" | \"): this server does not decide whether a provision applies to a case.\n- `etat`: VIGUEUR, VIGUEUR_ETEN, VIGUEUR_NON_ETEN, ABROGE_DIFF in force; VIGUEUR_DIFF not yet; MODIFIE, ABROGE, PERIME no longer; DENONCE may still apply (list: `etat` field).\n- An empty result does not mean the law is silent: call `fr_coverage` and tell the user what is missing.\n\n## Errors\nA failed call returns isError with a text that starts with a code:\n- `[invalid_arg]` an argument is missing or malformed: fix it as the message says.\n- `[not_found]` nothing exists for that id: search again.\n- `[rate_limited]` PISTE quota reached: wait the delay given, then retry.\n- `[upstream_error]` Légifrance/PISTE failure: retry if the message asks, else report it.\n- `[config_error]` credentials or settings are missing or rejected: ask the user to fix the configuration.\n- `[audit_error]` the local audit log could not be written, so the result was withheld: tell the user."
   },
   "lock_format": 1,
   "prompts": {
@@ -106,10 +106,10 @@
   },
   "server_version": "1.4.1",
   "sizes": {
-    "instructions_chars": 3688,
-    "tools_list_bytes": 42492
+    "instructions_chars": 3937,
+    "tools_list_bytes": 49792
   },
-  "surface_sha256": "fdda1871d907f29cf41b6ca24e6b8481867bbbfa14b6946689e80affff2dd96d",
+  "surface_sha256": "736e77ab31bdf26c9a72db82ffbf1ffbadfb43808d59b2b5951385995bc1268a",
   "tools": {
     "fr_coverage": {
       "descriptor": {
@@ -1382,6 +1382,278 @@
       },
       "sha256": "82c0fbb8457a43004cd9576655c375b069ec2476d752ad988de770ae85c1e0bc"
     },
+    "fr_get_service_public": {
+      "descriptor": {
+        "annotations": {
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": true,
+          "readOnlyHint": true,
+          "title": "Read a Service-Public sheet"
+        },
+        "description": "Read one Service-Public.gouv.fr practical sheet (F...) or folder (N...) by its id from fr_search_service_public, for its audience. A sheet returns its title, description, date, citation, source_url and legal_references: the Légifrance texts it relies on, with the ids that fr_get_text, fr_get_act, fr_get_convention or fr_get_decision read. A folder lists its sheets. The sheet is read from the day's archive kept in memory (downloaded once if no search came first). This is administrative guidance written for the public, not the law, and only today's version is served: read the texts in legal_references before relying on a precise point.",
+        "inputSchema": {
+          "additionalProperties": false,
+          "properties": {
+            "audience": {
+              "default": "particuliers",
+              "description": "Audience of the sheet, as given by fr_search_service_public.",
+              "enum": [
+                "particuliers",
+                "entreprendre"
+              ],
+              "type": "string"
+            },
+            "detail": {
+              "description": "\"summary\" (default): metadata and a short summary. \"full\": the text from offset, up to max_chars.",
+              "enum": [
+                "summary",
+                "full"
+              ],
+              "type": "string"
+            },
+            "focus": {
+              "description": "A few words: return the best matching passages instead of the summary or window.",
+              "maxLength": 500,
+              "minLength": 1,
+              "type": "string"
+            },
+            "id": {
+              "description": "A sheet (F...) or folder (N...) id from fr_search_service_public.",
+              "type": "string"
+            },
+            "max_chars": {
+              "default": 4000,
+              "description": "Maximum characters of text returned (500 to 40000).",
+              "maximum": 40000,
+              "minimum": 500,
+              "type": "integer"
+            },
+            "offset": {
+              "default": 0,
+              "description": "Start position in characters for detail=\"full\"; pass the next_offset of the previous call.",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "passages": {
+              "default": 3,
+              "description": "Number of passages returned with focus.",
+              "maximum": 10,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "type": "object"
+        },
+        "name": "fr_get_service_public",
+        "outputSchema": {
+          "properties": {
+            "attribution": {
+              "type": "string"
+            },
+            "audience": {
+              "enum": [
+                "particuliers",
+                "entreprendre"
+              ],
+              "type": "string"
+            },
+            "citation": {
+              "type": "string"
+            },
+            "description": {
+              "type": "string"
+            },
+            "entries": {
+              "items": {
+                "properties": {
+                  "group": {
+                    "type": "string"
+                  },
+                  "id": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "enum": [
+                      "sheet",
+                      "folder",
+                      "theme"
+                    ],
+                    "type": "string"
+                  },
+                  "title": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "kind",
+                  "title"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "guidance_note": {
+              "description": "What Service-Public sheets are, and the limit of this source.",
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "sheet",
+                "folder",
+                "theme"
+              ],
+              "type": "string"
+            },
+            "legal_references": {
+              "description": "Legifrance texts the sheet relies on, at most 50; id is given when a tool of this server reads it.",
+              "items": {
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "source_url": {
+                    "type": "string"
+                  },
+                  "title": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "source_url"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "legal_references_truncated": {
+              "description": "true when legal_references is incomplete.",
+              "type": "boolean"
+            },
+            "next_offset": {
+              "description": "Pass as offset to read the next window.",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "note": {
+              "type": "string"
+            },
+            "passages": {
+              "items": {
+                "properties": {
+                  "offset": {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "score": {
+                    "description": "BM25 relevance, only comparable between the passages of this answer.",
+                    "type": "number"
+                  },
+                  "text": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "offset",
+                  "text",
+                  "score"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "path": {
+              "description": "Place in the site, from the broadest heading to the narrowest.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "sheet_type": {
+              "type": "string"
+            },
+            "source_file": {
+              "description": "The archive and the entry read.",
+              "properties": {
+                "date": {
+                  "type": "string"
+                },
+                "entry": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "url",
+                "name",
+                "entry"
+              ],
+              "type": "object"
+            },
+            "source_url": {
+              "type": "string"
+            },
+            "summary": {
+              "type": "string"
+            },
+            "summary_source": {
+              "enum": [
+                "official",
+                "dispositif",
+                "lead"
+              ],
+              "type": "string"
+            },
+            "summary_truncated": {
+              "description": "True when the summary itself is cut short or is only the opening of the text. Absent for an official summary or operative part that is given whole (it may still cover only part of the text).",
+              "type": "boolean"
+            },
+            "text": {
+              "type": "string"
+            },
+            "text_length": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "theme": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "updated": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "audience",
+            "kind",
+            "title",
+            "citation",
+            "source_url",
+            "attribution",
+            "source_file",
+            "guidance_note"
+          ],
+          "type": "object"
+        },
+        "title": "Read a Service-Public sheet"
+      },
+      "sha256": "fc374e25fdd79620f9cde7f2c9714ec541bd8ae893cff3865b57bf96f0883fd0"
+    },
     "fr_get_text": {
       "descriptor": {
         "annotations": {
@@ -2170,6 +2442,166 @@
       },
       "sha256": "5866611fe5ebc09d370846fed74e53df63427900053e82aeca6756edcea15cda"
     },
+    "fr_search_service_public": {
+      "descriptor": {
+        "annotations": {
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": true,
+          "readOnlyHint": true,
+          "title": "Search Service-Public practical sheets"
+        },
+        "description": "Search the practical sheets of Service-Public.gouv.fr, the French administration's plain-language guide to rights and procedures (DILA): what the rules mean for a given situation, not the law itself. The search runs locally on the titles and summaries of the sheets and folders, never on their full text: use a few plain words, accents and case aside; a word also matches the longer words it starts. `audience` picks particuliers (default), entreprendre (businesses and the self-employed) or all. The first search of the day downloads the day's archive (about 24 MB). Returns ids (F for a sheet, N for a folder) to read with fr_get_service_public, never the text.",
+        "inputSchema": {
+          "additionalProperties": false,
+          "properties": {
+            "audience": {
+              "default": "particuliers",
+              "description": "\"particuliers\" (default): individuals; \"entreprendre\": businesses and the self-employed; \"all\": both.",
+              "enum": [
+                "particuliers",
+                "entreprendre",
+                "all"
+              ],
+              "type": "string"
+            },
+            "page": {
+              "default": 1,
+              "description": "Page number, from 1.",
+              "minimum": 1,
+              "type": "integer"
+            },
+            "page_size": {
+              "default": 10,
+              "description": "Hits per page (1..50).",
+              "maximum": 50,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "query": {
+              "description": "A few plain words, matched against sheet and folder titles and summaries (accents and case aside; a word also matches the longer words it starts).",
+              "maxLength": 450,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "query"
+          ],
+          "type": "object"
+        },
+        "name": "fr_search_service_public",
+        "outputSchema": {
+          "properties": {
+            "attribution": {
+              "type": "string"
+            },
+            "guidance_note": {
+              "description": "What Service-Public sheets are, and the limit of this source.",
+              "type": "string"
+            },
+            "has_more": {
+              "description": "True if the next page exists.",
+              "type": "boolean"
+            },
+            "hits": {
+              "items": {
+                "properties": {
+                  "audience": {
+                    "enum": [
+                      "particuliers",
+                      "entreprendre"
+                    ],
+                    "type": "string"
+                  },
+                  "id": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "enum": [
+                      "sheet",
+                      "folder",
+                      "theme"
+                    ],
+                    "type": "string"
+                  },
+                  "path": {
+                    "description": "Place in the site, from the broadest heading to the narrowest.",
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "source_url": {
+                    "type": "string"
+                  },
+                  "title": {
+                    "type": "string"
+                  },
+                  "updated": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "audience",
+                  "kind",
+                  "title",
+                  "source_url"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "note": {
+              "type": "string"
+            },
+            "page": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "source_files": {
+              "description": "The archive searched for each audience.",
+              "items": {
+                "properties": {
+                  "date": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "url": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "url",
+                  "name"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "total": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "total",
+            "page",
+            "has_more",
+            "hits",
+            "attribution",
+            "source_files",
+            "guidance_note"
+          ],
+          "type": "object"
+        },
+        "title": "Search Service-Public practical sheets"
+      },
+      "sha256": "445df620407981f9dfac966d1c4fa8648d2ddba7f6edd97f675a3d82c5ba8953"
+    },
     "fr_verify_citations": {
       "descriptor": {
         "annotations": {
@@ -2322,5 +2754,5 @@
       "sha256": "be51a6e4cd67f1f91289213f993c62a87c1f1023384e59e9a96922d94073f260"
     }
   },
-  "toolset_sha256": "7b97f9a5c8b8277e23547c5e34a0a27e99e417e09a30db514b57e971670515e6"
+  "toolset_sha256": "b5e39fe40432e7efc36b9739e43f47ae0ed0744fec92c66443fa310ba2513af4"
 }

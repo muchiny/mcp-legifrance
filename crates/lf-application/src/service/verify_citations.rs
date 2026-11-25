@@ -13,14 +13,16 @@ use crate::{
     error::AppError,
     input::{ToolCall, VerifyCitationsInput},
     output::verify_citations::VerifyCitationsOutput,
-    ports::{AuditLog, Clock, LegalCorpus, TaxDoctrine},
+    ports::{AuditLog, Clock, LegalCorpus, PublicGuidance, TaxDoctrine},
     tools::ToolName,
     usecase::verify_citations::VerifyCitationsUseCase,
 };
 
 use super::LegalService;
 
-impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine> LegalService<C, A, K, D> {
+impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine, G: PublicGuidance>
+    LegalService<C, A, K, D, G>
+{
     /// `fr_verify_citations` : contrôle les citations d'un texte (05 §5.9), auditée sous
     /// `fr_verify_citations` (métrique : nombre de citations contrôlées).
     ///

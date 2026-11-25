@@ -281,7 +281,7 @@ fn indent(depth: u16) -> String {
 #[cfg(test)]
 mod tests {
     use lf_domain::{
-        coverage::{ConfigFacts, DoctrineSource, coverage},
+        coverage::{ConfigFacts, DoctrineSource, GuidanceSource, coverage},
         date::{CivilDate, VersionDate},
         ecli::Ecli,
         entity::{Act, ArticleText, Decision, TextBody},
@@ -675,6 +675,7 @@ mod tests {
             has_problems: false,
             local_snapshot: false,
             doctrine: DoctrineSource::NotServed,
+            guidance: GuidanceSource::NotServed,
         };
         let coverage_output = CoverageOutput {
             coverage: coverage(PisteEnvironment::Sandbox, &facts, &Fond::ALL),

@@ -1,0 +1,50 @@
+[package]
+name = "lf-adapter-service-public"
+description = "Adapter Service-Public du MCP Légifrance : fiches pratiques de Service-Public.gouv.fr (DILA), lues dans l'archive du jour gardée en mémoire, implémentation du port PublicGuidance."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+# lecteur d'archive (archive.rs) : `read::DeflateDecoder` pour les entrées `deflate`, `Crc` pour
+# la somme CRC-32 ; porte ouverte à ce crate (ADR-0033, décision 2), backend Rust pur
+flate2.workspace = true
+# `Last-Modified` de l'archive, rendu par le port en `DateTime<Utc>` (client.rs)
+chrono.workspace = true
+# port PublicGuidance et GuidanceError (client.rs)
+lf-application.workspace = true
+# valeurs du domaine (page.rs) : SheetId, Block, GuidanceDoc, IndexedPage, GuidanceMenu,
+# legal_references, ServicePublicUrl
+lf-domain.workspace = true
+# lecteur XML (xml.rs) : `Reader` et ses événements, sans `serde` ; porte ouverte à ce crate
+# (ADR-0033, décision 2)
+quick-xml.workspace = true
+# erreurs du lecteur d'archive et du lecteur XML, sans octet lu
+thiserror.workspace = true
+# client HTTP unique (client.rs), porte ouverte à ce crate (ADR-0033, décision 2) ; mêmes
+# fonctions que le client du BOFiP, sans gzip (l'archive est déjà compressée) : system-proxy,
+# HTTPS_PROXY / NO_PROXY ; rustls, TLS (aucun paquet de plus au verrou)
+reqwest = { workspace = true, features = ["system-proxy", "rustls"] }
+# store.rs : rt, tâche du téléchargement et `spawn_blocking` de l'index ; sync, signal de fin
+# partagé (`watch`) ; time, attente bornée et âge de l'archive (`Instant`, suspendu en test)
+tokio = { workspace = true, features = ["rt", "sync", "time"] }
+# journal du chargement et des échecs de l'archive (store.rs), sans adresse ni contenu lu
+tracing.workspace = true
+
+[dev-dependencies]
+# test de propriété du lecteur d'archive : archives réelles coupées, allongées ou changées
+proptest.workspace = true
+pretty_assertions.workspace = true
+# #[tokio::test] ; net, io-util : serveurs bruts d'une connexion (client.rs) ; test-util :
+# temps suspendu des tests du magasin (store.rs)
+tokio = { workspace = true, features = ["macros", "net", "rt", "io-util", "test-util"] }
+# client.rs : faux serveur de la DILA
+wiremock.workspace = true
+# fmt + MakeWriter en mémoire pour capter les événements du magasin (testing.rs)
+tracing-subscriber.workspace = true
+
+[lints]
+workspace = true

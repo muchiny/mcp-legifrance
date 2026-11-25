@@ -1,8 +1,8 @@
 //! Cœur pur du serveur MCP Légifrance.
 //!
 //! Aucune I/O, aucun async : identifiants typés, fonds, dates civiles, ECLI,
-//! URL Légifrance, contrat de citation, entités, utilitaires texte et valeurs du BOFiP
-//! (doctrine fiscale).
+//! URL Légifrance, contrat de citation, entités, utilitaires texte, valeurs du BOFiP
+//! (doctrine fiscale) et de Service-Public (fiches pratiques).
 
 pub mod citation;
 pub mod contract;
@@ -13,6 +13,7 @@ pub mod ecli;
 pub mod entity;
 pub mod error;
 pub mod fond;
+pub mod guidance;
 pub mod id;
 pub mod search;
 pub mod status;

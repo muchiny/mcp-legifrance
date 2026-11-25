@@ -33,5 +33,6 @@ pub use id::{BOI_ID_MAX_BYTES, BoiId, PublicationId, SERIE_MAX_BYTES, Serie};
 pub use kind::{DoctrineKind, KindFilter};
 pub use query::{DoctrineMatch, DoctrineQuery};
 pub use terms::DoctrineTerms;
+pub(crate) use terms::{plain_words, search_words};
 pub use text::{LINE_MAX_CHARS, PublicationText, clean_line, clean_text, publication_text};
 pub use url::{BOFIP_PAGE_BASE, BOFIP_URL_MAX_BYTES, BofipUrl, Permalink};

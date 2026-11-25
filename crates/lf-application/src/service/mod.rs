@@ -16,13 +16,13 @@
 //! (non audité, liste vide en cas d'erreur), dans `resource.rs` et `complete.rs`.
 
 use lf_domain::coverage::ConfigFacts;
-pub use lf_domain::coverage::DoctrineSource;
+pub use lf_domain::coverage::{DoctrineSource, GuidanceSource};
 
 use crate::{
     audited::{AuditPolicy, Audited},
     budget::ResponseBudget,
     citation::resolve::Proof,
-    ports::{AuditLog, Clock, LegalCorpus, NoDoctrine, TaxDoctrine},
+    ports::{AuditLog, Clock, LegalCorpus, NoDoctrine, NoGuidance, PublicGuidance, TaxDoctrine},
     usecase::complete::CompleteGate,
 };
 
@@ -36,12 +36,14 @@ mod get_convention;
 mod get_decision;
 mod get_deliberation;
 mod get_related;
+mod get_service_public;
 mod get_text;
 mod resolve;
 mod resource;
 mod search;
 mod search_all;
 mod search_bofip;
+mod search_service_public;
 mod verify_citations;
 
 /// État de la configuration du processus, tel que `fr_coverage` le rend (05 §5.8). Rempli par
@@ -65,10 +67,14 @@ pub struct ConfigurationState {
     /// coupée (FR-107), ou `NotServed`, le défaut, tant que le serveur ne sert pas ses outils.
     /// Posé par `lf-app` avec la source elle-même (`LegalService::with_doctrine`).
     pub doctrine: DoctrineSource,
+    /// État de la source des fiches de Service-Public, pour `fr_coverage` : active (FR-108),
+    /// coupée (FR-109), ou `NotServed`, le défaut, tant que le serveur ne sert pas ses outils.
+    /// Posé par `lf-app` avec la source elle-même (`LegalService::with_guidance`).
+    pub guidance: GuidanceSource,
 }
 
 impl ConfigurationState {
-    /// Les cinq faits que le domaine lit pour calculer la couverture ; la liste des problèmes
+    /// Les six faits que le domaine lit pour calculer la couverture ; la liste des problèmes
     /// n'y entre pas.
     #[must_use]
     pub fn facts(&self) -> ConfigFacts {
@@ -78,6 +84,7 @@ impl ConfigurationState {
             has_problems: !self.problems.is_empty(),
             local_snapshot: self.local_snapshot,
             doctrine: self.doctrine,
+            guidance: self.guidance,
         }
     }
 }
@@ -104,14 +111,23 @@ impl ServiceSettings {
 }
 
 /// Façade des cas d'usage, partagée par `Arc` entre les tâches. Elle est `Send + Sync` parce que
-/// `C`, `A`, `K` et `D` le sont par les bornes des ports.
+/// `C`, `A`, `K`, `D` et `G` le sont par les bornes des ports.
 ///
 /// `D` est la source de doctrine fiscale (BOFiP, ADR-0028). Son défaut, [`NoDoctrine`], est une
 /// source coupée : [`LegalService::new`] assemble une façade sans doctrine, et
-/// [`LegalService::with_doctrine`] pose la source.
-pub struct LegalService<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine = NoDoctrine> {
+/// [`LegalService::with_doctrine`] pose la source. `G` est la source des fiches de Service-Public
+/// (ADR-0033), sur le même modèle : coupée par défaut ([`NoGuidance`]), posée par
+/// [`LegalService::with_guidance`].
+pub struct LegalService<
+    C: LegalCorpus,
+    A: AuditLog,
+    K: Clock,
+    D: TaxDoctrine = NoDoctrine,
+    G: PublicGuidance = NoGuidance,
+> {
     corpus: C,
     doctrine: D,
+    guidance: G,
     audited: Audited<A>,
     clock: K,
     settings: ServiceSettings,
@@ -120,14 +136,15 @@ pub struct LegalService<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine = 
 }
 
 impl<C: LegalCorpus, A: AuditLog, K: Clock> LegalService<C, A, K> {
-    /// Assemble la façade, sans source de doctrine ([`NoDoctrine`]) ; `audit` est enveloppé dans
-    /// un [`Audited`] qui suit `settings.policy`.
+    /// Assemble la façade, sans source de doctrine ([`NoDoctrine`]) ni de Service-Public
+    /// ([`NoGuidance`]) ; `audit` est enveloppé dans un [`Audited`] qui suit `settings.policy`.
     #[must_use]
     pub fn new(corpus: C, audit: A, clock: K, settings: ServiceSettings) -> Self {
         let audited = Audited::new(audit, settings.policy);
         Self {
             corpus,
             doctrine: NoDoctrine,
+            guidance: NoGuidance,
             audited,
             clock,
             settings,
@@ -136,14 +153,32 @@ impl<C: LegalCorpus, A: AuditLog, K: Clock> LegalService<C, A, K> {
     }
 }
 
-impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine> LegalService<C, A, K, D> {
-    /// La même façade, avec `doctrine` pour source de doctrine fiscale. Le reste (corpus, audit,
-    /// horloge, réglages, débit des complétions) est repris tel quel.
+impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine, G: PublicGuidance>
+    LegalService<C, A, K, D, G>
+{
+    /// La même façade, avec `doctrine` pour source de doctrine fiscale. Le reste (corpus, source
+    /// de Service-Public, audit, horloge, réglages, débit des complétions) est repris tel quel.
     #[must_use]
-    pub fn with_doctrine<D2: TaxDoctrine>(self, doctrine: D2) -> LegalService<C, A, K, D2> {
+    pub fn with_doctrine<D2: TaxDoctrine>(self, doctrine: D2) -> LegalService<C, A, K, D2, G> {
         LegalService {
             corpus: self.corpus,
             doctrine,
+            guidance: self.guidance,
+            audited: self.audited,
+            clock: self.clock,
+            settings: self.settings,
+            complete_gate: self.complete_gate,
+        }
+    }
+
+    /// La même façade, avec `guidance` pour source des fiches de Service-Public. Le reste est
+    /// repris tel quel.
+    #[must_use]
+    pub fn with_guidance<G2: PublicGuidance>(self, guidance: G2) -> LegalService<C, A, K, D, G2> {
+        LegalService {
+            corpus: self.corpus,
+            doctrine: self.doctrine,
+            guidance,
             audited: self.audited,
             clock: self.clock,
             settings: self.settings,
@@ -172,7 +207,7 @@ pub(crate) mod bofip_fixtures {
         audited::{AuditMode, AuditPolicy},
         budget::ResponseBudget,
         ports::{AuditError, AuditLog, AuditRecord, NoDoctrine, PisteEnvironment},
-        testing::{FakeCorpus, FakeDoctrine, FixedClock, MemoryAuditLog},
+        testing::{FakeCorpus, FakeDoctrine, FakeGuidance, FixedClock, MemoryAuditLog},
     };
 
     /// Journal partagé : le service possède le sien, le test en garde une poignée.
@@ -218,6 +253,16 @@ pub(crate) mod bofip_fixtures {
         let (service, log) = service_without_doctrine();
         (service.with_doctrine(FakeDoctrine::new()), log)
     }
+
+    /// Façade de test sans doctrine, avec une fausse source de Service-Public.
+    pub(crate) type GuidedService =
+        LegalService<FakeCorpus, SharedAudit, FixedClock, NoDoctrine, FakeGuidance>;
+
+    /// La façade de `LegalService::new`, avec une fausse source de Service-Public.
+    pub(crate) fn service_with_guidance() -> (GuidedService, Arc<MemoryAuditLog>) {
+        let (service, log) = service_without_doctrine();
+        (service.with_guidance(FakeGuidance::new()), log)
+    }
 }
 
 #[cfg(test)]
@@ -257,6 +302,7 @@ mod tests {
                 has_problems: false,
                 local_snapshot: false,
                 doctrine: DoctrineSource::NotServed,
+                guidance: GuidanceSource::NotServed,
             }
         );
         let degraded = ConfigurationState {
@@ -265,6 +311,7 @@ mod tests {
             problems: vec!["LF_PISTE_ENV is invalid".to_owned()],
             local_snapshot: false,
             doctrine: DoctrineSource::NotServed,
+            guidance: GuidanceSource::NotServed,
         };
         assert_eq!(
             degraded.facts(),
@@ -274,6 +321,7 @@ mod tests {
                 has_problems: true,
                 local_snapshot: false,
                 doctrine: DoctrineSource::NotServed,
+                guidance: GuidanceSource::NotServed,
             }
         );
         let snapshot = ConfigurationState { local_snapshot: true, ..Default::default() };
@@ -285,12 +333,18 @@ mod tests {
                 has_problems: false,
                 local_snapshot: true,
                 doctrine: DoctrineSource::NotServed,
+                guidance: GuidanceSource::NotServed,
             }
         );
         // L'état de la source de doctrine passe tel quel, dans ses trois valeurs.
         for doctrine in [DoctrineSource::NotServed, DoctrineSource::Active, DoctrineSource::Off] {
             let state = ConfigurationState { doctrine, ..Default::default() };
             assert_eq!(state.facts().doctrine, doctrine);
+        }
+        // Celui de la source de Service-Public aussi.
+        for guidance in [GuidanceSource::NotServed, GuidanceSource::Active, GuidanceSource::Off] {
+            let state = ConfigurationState { guidance, ..Default::default() };
+            assert_eq!(state.facts().guidance, guidance);
         }
         // Une configuration par défaut n'a ni identifiants ni problème, PISTE pour source, et
         // aucun outil du BOFiP servi.
@@ -302,6 +356,7 @@ mod tests {
                 has_problems: false,
                 local_snapshot: false,
                 doctrine: DoctrineSource::NotServed,
+                guidance: GuidanceSource::NotServed,
             }
         );
     }
@@ -366,6 +421,42 @@ mod tests {
         assert_eq!(error.code(), Some(ErrorCode::UpstreamError));
         assert_eq!((service.corpus.calls(), service.doctrine.calls()), (1, 0));
         // Le journal partagé reçoit toujours la ligne.
+        let tools: Vec<ToolName> = log.records().iter().map(|line| line.tool).collect();
+        assert_eq!(tools, [ToolName::FR_GET_DELIBERATION]);
+    }
+
+    /// `with_guidance` ne change que la source de Service-Public, et `with_doctrine` la garde :
+    /// le type rendu porte toujours la `FakeGuidance` posée avant.
+    #[tokio::test]
+    async fn with_guidance_keeps_everything_and_with_doctrine_keeps_the_guidance() {
+        use crate::{
+            error::ErrorCode,
+            input::{CanonicalInput, GetDeliberationInput, ToolCall},
+            ports::{Clock, CorpusError},
+            testing::{FakeDoctrine, FakeGuidance},
+            tools::ToolName,
+        };
+        use std::future::pending;
+
+        let (plain, log) = bofip_fixtures::service_without_doctrine();
+        plain.corpus.push_get_deliberation(Err(CorpusError::Timeout));
+        let now = plain.clock.now_utc();
+        let service = plain.with_guidance(FakeGuidance::new()).with_doctrine(FakeDoctrine::new());
+        assert_eq!(service.settings(), &bofip_fixtures::settings());
+        assert_eq!(service.clock.now_utc(), now);
+        let call = ToolCall {
+            input: Ok(GetDeliberationInput {
+                deliberation_id: Some("CNILTEXT000053352643".to_owned()),
+                ..GetDeliberationInput::default()
+            }),
+            canonical: CanonicalInput::new("{}"),
+        };
+        let error = service.get_deliberation(call, pending()).await.unwrap_err();
+        assert_eq!(error.code(), Some(ErrorCode::UpstreamError));
+        assert_eq!(
+            (service.corpus.calls(), service.doctrine.calls(), service.guidance.calls()),
+            (1, 0, 0)
+        );
         let tools: Vec<ToolName> = log.records().iter().map(|line| line.tool).collect();
         assert_eq!(tools, [ToolName::FR_GET_DELIBERATION]);
     }

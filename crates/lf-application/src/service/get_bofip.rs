@@ -12,14 +12,16 @@ use crate::{
     error::AppError,
     input::{GetBofipInput, ToolCall},
     output::get_bofip::GetBofipOutput,
-    ports::{AuditLog, Clock, LegalCorpus, TaxDoctrine},
+    ports::{AuditLog, Clock, LegalCorpus, PublicGuidance, TaxDoctrine},
     tools::ToolName,
     usecase::get_bofip::GetBofipUseCase,
 };
 
 use super::LegalService;
 
-impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine> LegalService<C, A, K, D> {
+impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine, G: PublicGuidance>
+    LegalService<C, A, K, D, G>
+{
     /// `fr_get_bofip` : lecture d'une publication du BOFiP, en résumé, en fenêtre de texte ou en
     /// passages, ou liste des publications qui portent l'identifiant (05 §5.15). Métrique
     /// d'audit : les caractères renvoyés, ou le nombre de publications listées.

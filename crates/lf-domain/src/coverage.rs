@@ -5,7 +5,7 @@
 //!
 //! La forme livrée est gardée (D11 du plan « fin du projet », qui tranche M1-D20) ; la fonction
 //! pure [`coverage`] la remplit (03 §4.8) : le catalogue statique des lacunes FR-001 à FR-009 et
-//! les lacunes calculées FR-101 à FR-107 d'après l'environnement, la configuration
+//! les lacunes calculées FR-101 à FR-109 d'après l'environnement, la configuration
 //! ([`ConfigFacts`]) et les fonds servis. Le domaine ne nomme aucun outil MCP : une famille porte
 //! le nom du fond (`Fond::name`), et c'est l'adapter MCP qui rattache libellé et outils à ce
 //! fond. De même, une lacune nomme le fond concerné dans `family`, vide quand elle vaut pour le
@@ -15,6 +15,11 @@
 //! ([`DoctrineSource`]) ne crée aucune famille ici et ne change jamais le statut. Il donne une
 //! lacune de famille [`DOCTRINE_FAMILY`] (FR-106 ou FR-107) et reformule trois lacunes ; tant
 //! que le serveur ne sert aucun outil du BOFiP, la couverture est celle d'avant, mot pour mot.
+//!
+//! Les fiches de Service-Public (ADR-0033) suivent le même chemin à part : leur état
+//! ([`GuidanceSource`]) donne une lacune de famille [`GUIDANCE_FAMILY`] (FR-108 ou FR-109), après
+//! celle du BOFiP, sans changer le statut, les familles ni aucune autre lacune. Le domaine la
+//! calcule pour toute surface ; la vue l'écarte hors de la v0.3 (05 §5.8).
 
 use std::fmt;
 
@@ -163,7 +168,24 @@ pub enum DoctrineSource {
 /// Famille (`family`) des lacunes du BOFiP, qui n'est pas un fond de Légifrance.
 pub const DOCTRINE_FAMILY: &str = "BOFIP";
 
-/// Ce que la configuration du processus apprend à la couverture (03 §4.8) : cinq faits, sans
+/// État de la source des fiches de Service-Public (ADR-0033), tel que la couverture le lit : un
+/// fait à trois états, comme [`DoctrineSource`], et sans plus d'effet sur le statut.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum GuidanceSource {
+    /// Le serveur ne sert aucun outil de Service-Public : la couverture n'en dit rien.
+    #[default]
+    NotServed,
+    /// Source active : lacune FR-108 (recherche sur les titres et résumés, version du jour).
+    Active,
+    /// Source coupée (`LF_SERVICE_PUBLIC=off`, valeur invalide ou mode hors ligne) : lacune
+    /// FR-109.
+    Off,
+}
+
+/// Famille (`family`) des lacunes de Service-Public, qui n'est pas un fond de Légifrance.
+pub const GUIDANCE_FAMILY: &str = "SERVICE_PUBLIC";
+
+/// Ce que la configuration du processus apprend à la couverture (03 §4.8) : six faits, sans
 /// secret ni phrase. La liste des problèmes détectés reste dans `lf-application`
 /// (`ConfigurationState`) et n'entre pas dans le domaine.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -184,6 +206,9 @@ pub struct ConfigFacts {
     /// État de la source de doctrine fiscale (FR-106 active, FR-107 coupée), sans effet sur le
     /// statut.
     pub doctrine: DoctrineSource,
+    /// État de la source des fiches de Service-Public (FR-108 active, FR-109 coupée), sans effet
+    /// sur le statut.
+    pub guidance: GuidanceSource,
 }
 
 /// Source des données de chaque famille (`SOURCE`, `coverage.py:57`).
@@ -345,6 +370,24 @@ const DOCTRINE_OFF_GAP: GapText = GapText {
     fallback: "The operator can set LF_BOFIP=on; search words are then sent to the DGFiP open data portal.",
 };
 
+/// FR-108 : source Service-Public active. La recherche ne lit que les titres et résumés, et
+/// seule la version du jour est servie.
+const GUIDANCE_TODAY_ONLY_GAP: GapText = GapText {
+    id: "FR-108",
+    fond: None,
+    missing: "Service-Public sheets are searched by their titles and summaries, not their full text, and served as published today, for Particuliers and Entreprendre (not Associations); the first search downloads the day's archive.",
+    fallback: "Browse the folders (N... ids) with fr_get_service_public; for the rule at a given date, read the Légifrance texts listed in legal_references.",
+};
+
+/// FR-109 : source Service-Public coupée (`LF_SERVICE_PUBLIC=off`, valeur invalide, ou mode hors
+/// ligne).
+const GUIDANCE_OFF_GAP: GapText = GapText {
+    id: "FR-109",
+    fond: None,
+    missing: "The Service-Public source is turned off (LF_SERVICE_PUBLIC, or offline mode): fr_search_service_public and fr_get_service_public fail with config_error.",
+    fallback: "The operator can set LF_SERVICE_PUBLIC=on; the day's archive is then downloaded from the DILA server, and neither search words nor sheet numbers are ever sent.",
+};
+
 /// Les trois lacunes reformulées quand le serveur sert les outils du BOFiP (05 §5.8) : la
 /// doctrine fiscale n'est plus dite non couverte (FR-009), et une configuration PISTE absente ou
 /// invalide ne fait plus échouer « tous les outils » (FR-102, FR-104), puisque ceux du BOFiP
@@ -381,6 +424,11 @@ fn doctrine_gap(text: &GapText) -> CoverageGap {
     CoverageGap { family: DOCTRINE_FAMILY.to_owned(), ..text.to_gap() }
 }
 
+/// Lacune de Service-Public : celle de `text`, de famille [`GUIDANCE_FAMILY`].
+fn guidance_gap(text: &GapText) -> CoverageGap {
+    CoverageGap { family: GUIDANCE_FAMILY.to_owned(), ..text.to_gap() }
+}
+
 /// Famille d'un fond servi : le nom du fond, sans outil (hors du domaine). Interrogée en direct,
 /// sauf depuis l'instantané local, qui n'a pas de date de capture rendue.
 fn family_of(fond: Fond, local_snapshot: bool) -> CoverageFamily {
@@ -406,10 +454,13 @@ fn family_of(fond: Fond, local_snapshot: bool) -> CoverageFamily {
 /// - **Lacunes** : le catalogue FR-001 à FR-009, puis les lacunes calculées dans l'ordre FR-101
 ///   (bac à sable), FR-102 (identifiants absents), FR-103 (hôte personnalisé), FR-104 (problème
 ///   de configuration), FR-105 (instantané local, LEGI seul), puis celle du BOFiP : FR-106
-///   (source active) ou FR-107 (source coupée). Jamais vide.
+///   (source active) ou FR-107 (source coupée), puis celle de Service-Public : FR-108 (source
+///   active) ou FR-109 (source coupée). Jamais vide.
 /// - **BOFiP** ([`ConfigFacts::doctrine`]) : sans effet sur le statut, les familles et la note
 ///   de date. Quand le serveur sert ses outils, FR-009, FR-102 et FR-104 prennent leur texte
 ///   reformulé ; sinon, tout est rendu comme avant le jalon MB.
+/// - **Service-Public** ([`ConfigFacts::guidance`]) : sa seule lacune, en dernier ; rien d'autre
+///   ne change.
 #[must_use]
 pub fn coverage(env: PisteEnvironment, facts: &ConfigFacts, served: &[Fond]) -> Coverage {
     let healthy = facts.credentials_configured && !facts.has_problems && !facts.local_snapshot;
@@ -435,12 +486,18 @@ pub fn coverage(env: PisteEnvironment, facts: &ConfigFacts, served: &[Fond]) -> 
         DoctrineSource::Active => Some(&DOCTRINE_IN_FORCE_ONLY_GAP),
         DoctrineSource::Off => Some(&DOCTRINE_OFF_GAP),
     };
+    let of_guidance = match facts.guidance {
+        GuidanceSource::NotServed => None,
+        GuidanceSource::Active => Some(&GUIDANCE_TODAY_ONLY_GAP),
+        GuidanceSource::Off => Some(&GUIDANCE_OFF_GAP),
+    };
     let known_gaps = STATIC_GAPS
         .iter()
         .chain(computed.into_iter().filter_map(|(active, gap)| active.then_some(gap)))
         .map(|gap| if doctrine_served { reworded(gap) } else { gap })
         .map(GapText::to_gap)
         .chain(of_doctrine.map(doctrine_gap))
+        .chain(of_guidance.map(guidance_gap))
         .collect();
 
     let as_of_note = if facts.local_snapshot { SNAPSHOT_AS_OF_NOTE } else { AS_OF_NOTE };
@@ -525,6 +582,7 @@ mod tests {
         has_problems: false,
         local_snapshot: false,
         doctrine: DoctrineSource::NotServed,
+        guidance: GuidanceSource::NotServed,
     };
 
     /// Les seize combinaisons de faits de configuration, sans outil du BOFiP servi.
@@ -541,6 +599,7 @@ mod tests {
                             has_problems,
                             local_snapshot,
                             doctrine: DoctrineSource::NotServed,
+                            guidance: GuidanceSource::NotServed,
                         })
                     })
                 })
@@ -808,6 +867,7 @@ mod tests {
             has_problems: true,
             local_snapshot: true,
             doctrine: DoctrineSource::NotServed,
+            guidance: GuidanceSource::NotServed,
         };
         let c = coverage(PisteEnvironment::Sandbox, &everything, &Fond::ALL);
         assert_eq!(&ids(&c)[9..], ["FR-101", "FR-102", "FR-103", "FR-104", "FR-105"]);
@@ -950,6 +1010,7 @@ mod tests {
             has_problems: true,
             local_snapshot: true,
             doctrine,
+            guidance: GuidanceSource::NotServed,
         };
         let of = |doctrine| coverage(PisteEnvironment::Sandbox, &everything(doctrine), &Fond::ALL);
         let before = of(DoctrineSource::NotServed);
@@ -1014,6 +1075,100 @@ mod tests {
                     let mut wanted = ids(&before);
                     wanted.push(id);
                     assert_eq!(ids(&with), wanted);
+                }
+            }
+        }
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // Service-Public (jalon MS, 05 §5.8) : l'état de la source des fiches.
+    // ---------------------------------------------------------------------------------------
+
+    const GUIDANCE_STATES: [GuidanceSource; 3] =
+        [GuidanceSource::NotServed, GuidanceSource::Active, GuidanceSource::Off];
+
+    #[test]
+    fn the_guidance_source_is_not_served_by_default() {
+        assert_eq!(GuidanceSource::default(), GuidanceSource::NotServed);
+        assert_eq!(GUIDANCE_FAMILY, "SERVICE_PUBLIC");
+        let set: HashSet<GuidanceSource> = GUIDANCE_STATES.into_iter().collect();
+        assert_eq!(set.len(), 3);
+    }
+
+    #[test]
+    fn service_public_gap_follows_the_source_state() {
+        let of = |guidance| {
+            coverage(PisteEnvironment::Production, &ConfigFacts { guidance, ..HEALTHY }, &Fond::ALL)
+        };
+        let not_served = of(GuidanceSource::NotServed);
+        assert_eq!(ids(&not_served).len(), 9);
+        assert!(not_served.known_gaps().iter().all(|gap| gap.family != GUIDANCE_FAMILY));
+        let active = of(GuidanceSource::Active);
+        assert_eq!(&ids(&active)[9..], ["FR-108"]);
+        assert_eq!(
+            table(&active)[9],
+            (
+                "FR-108",
+                "SERVICE_PUBLIC",
+                "Service-Public sheets are searched by their titles and summaries, not their full \
+                 text, and served as published today, for Particuliers and Entreprendre (not \
+                 Associations); the first search downloads the day's archive.",
+                "Browse the folders (N... ids) with fr_get_service_public; for the rule at a given \
+                 date, read the Légifrance texts listed in legal_references."
+            )
+        );
+        let off = of(GuidanceSource::Off);
+        assert_eq!(&ids(&off)[9..], ["FR-109"]);
+        assert_eq!(
+            table(&off)[9],
+            (
+                "FR-109",
+                "SERVICE_PUBLIC",
+                "The Service-Public source is turned off (LF_SERVICE_PUBLIC, or offline mode): \
+                 fr_search_service_public and fr_get_service_public fail with config_error.",
+                "The operator can set LF_SERVICE_PUBLIC=on; the day's archive is then downloaded \
+                 from the DILA server, and neither search words nor sheet numbers are ever sent."
+            )
+        );
+        // Avec le BOFiP servi, la lacune de Service-Public vient après la sienne.
+        let both = coverage(
+            PisteEnvironment::Production,
+            &ConfigFacts {
+                doctrine: DoctrineSource::Active,
+                guidance: GuidanceSource::Off,
+                ..HEALTHY
+            },
+            &Fond::ALL,
+        );
+        assert_eq!(&ids(&both)[9..], ["FR-106", "FR-109"]);
+    }
+
+    /// Service-Public ne change ni le statut, ni les familles, ni la note de date, ni aucune autre
+    /// lacune, quel que soit l'état du BOFiP : il n'ajoute que la sienne, en dernier.
+    #[test]
+    fn service_public_gaps_never_change_status() {
+        for env in [PisteEnvironment::Sandbox, PisteEnvironment::Production] {
+            for facts in all_facts() {
+                for doctrine in DOCTRINE_STATES {
+                    let facts = ConfigFacts { doctrine, ..facts };
+                    let before = coverage(env, &facts, &Fond::ALL);
+                    for (guidance, id) in
+                        [(GuidanceSource::Active, "FR-108"), (GuidanceSource::Off, "FR-109")]
+                    {
+                        let with = coverage(env, &ConfigFacts { guidance, ..facts }, &Fond::ALL);
+                        assert_eq!(
+                            with.status(),
+                            before.status(),
+                            "{env:?} {facts:?} {guidance:?}"
+                        );
+                        assert_eq!(with.families(), before.families());
+                        assert_eq!(with.as_of_note(), before.as_of_note());
+                        let mut wanted = table(&before);
+                        let last = table(&with).last().copied().unwrap();
+                        assert_eq!((last.0, last.1), (id, GUIDANCE_FAMILY));
+                        wanted.push(last);
+                        assert_eq!(table(&with), wanted);
+                    }
                 }
             }
         }

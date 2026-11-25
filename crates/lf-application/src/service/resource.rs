@@ -19,11 +19,13 @@ use crate::{
     input::{ResourceInput, ToolCall},
     messages,
     output::resource::ResourceOutput,
-    ports::{AuditLog, Clock, LegalCorpus, TaxDoctrine},
+    ports::{AuditLog, Clock, LegalCorpus, PublicGuidance, TaxDoctrine},
     usecase::resource::{ResourceRef, ResourceUseCase},
 };
 
-impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine> LegalService<C, A, K, D> {
+impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine, G: PublicGuidance>
+    LegalService<C, A, K, D, G>
+{
     /// Lit la resource `legifrance://...` désignée par `call`. `cancel` se résout quand le client
     /// annule.
     ///

@@ -1,11 +1,11 @@
-//! Les 15 outils, un fichier par outil : chacun porte son bloc `#[tool_router]`, que
-//! [`LegifranceServer::new`](crate::LegifranceServer::new) additionne aux quatorze autres.
+//! Les 17 outils, un fichier par outil : chacun porte son bloc `#[tool_router]`, que
+//! [`LegifranceServer::new`](crate::LegifranceServer::new) additionne aux seize autres.
 //!
 //! # Motif `#[tool]` retenu par le spike 0A (`spikes/rmcp-stdio/README.md`, V-28 et V-29 OK)
 //!
 //! ```text
 //! #[tool_router(router = search_router, vis = "pub(crate)")]
-//! impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine> LegifranceServer<C, A, K, D> {
+//! impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine, G: PublicGuidance> LegifranceServer<C, A, K, D, G> {
 //!     #[tool(
 //!         name = "fr_search",
 //!         title = "Search Légifrance",
@@ -52,9 +52,11 @@ mod get_convention;
 mod get_decision;
 mod get_deliberation;
 mod get_related;
+mod get_service_public;
 mod get_text;
 mod resolve;
 mod search;
 mod search_all;
 mod search_bofip;
+mod search_service_public;
 mod verify_citations;

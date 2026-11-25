@@ -12,6 +12,7 @@ use lf_domain::{
     date::{CivilDate, VersionDate},
     doctrine::{BoiId, PublicationId},
     fond::Fond,
+    guidance::{Audience, SheetId},
     text::is_invisible,
 };
 
@@ -21,6 +22,7 @@ use crate::{
         audit::AuditError,
         corpus::{AuthOrigin, ConfigKind, CorpusError},
         doctrine::{DoctrineError, PortalCode},
+        guidance::GuidanceError,
     },
     tools::ToolName,
 };
@@ -64,6 +66,27 @@ const DOCTRINE_DECODE_MESSAGE: &str = "unexpected response from the BOFiP portal
 
 /// Message d'une réponse du portail du BOFiP au-delà de la borne de corps.
 const DOCTRINE_TOO_LARGE_MESSAGE: &str = "the BOFiP portal answer is too large; report it.";
+
+/// Message d'une source de Service-Public coupée (05 §5.16, 00 §1) : texte fixe, rendu sans
+/// aucune E/S. Comme pour le BOFiP, il ne dit pas laquelle des causes joue, et dit ce que rouvrir
+/// la source envoie : un téléchargement d'archive, ni mot ni numéro (ADR-0033, décision 3).
+pub const GUIDANCE_DISABLED_MESSAGE: &str = "the Service-Public source is turned off \
+     (LF_SERVICE_PUBLIC is off or invalid, or the server runs offline with LF_DILA_DIR): \
+     fr_search_service_public and fr_get_service_public are unavailable. The operator can turn \
+     it on with LF_SERVICE_PUBLIC=on; the day's archive is then downloaded from the DILA server, \
+     and neither search words nor sheet numbers are sent.";
+
+/// Message d'un appel qui atteint son échéance pendant le téléchargement de l'archive (05 §5.16).
+pub const GUIDANCE_DOWNLOADING_MESSAGE: &str =
+    "Service-Public archive is still downloading; retry in a minute.";
+
+/// Message d'une archive ou d'une page refusée par le lecteur, repris pour un `NotFound` qu'une
+/// recherche ne devrait jamais recevoir.
+const GUIDANCE_DECODE_MESSAGE: &str = "the Service-Public archive could not be read; report it.";
+
+/// Message d'une archive au-delà de 64 Mio.
+const GUIDANCE_TOO_LARGE_MESSAGE: &str =
+    "the Service-Public archive is too large to load (over 64 MiB); report it.";
 
 /// Coupe `message` à `max_chars` caractères (points de code), sans jamais scinder un caractère
 /// multi-octets. Pas de points de suspension : la coupe est une borne de sûreté, pas un résumé.
@@ -417,6 +440,93 @@ fn doctrine_upstream(status: Option<u16>, retryable: bool) -> AppError {
     }
 }
 
+/// Message vu par le modèle pour une erreur du port de Service-Public (05 §5.16, §5.17).
+///
+/// `missing` est la page demandée par une lecture (numéro et public) : un `NotFound` nomme alors
+/// l'autre public. Une recherche n'en reçoit jamais : repli sur le message d'une archive
+/// illisible. Aucun message ne porte un mot de la recherche.
+#[must_use]
+pub fn guidance_error(missing: Option<(&SheetId, Audience)>, error: &GuidanceError) -> AppError {
+    match error {
+        GuidanceError::Disabled => AppError::config(GUIDANCE_DISABLED_MESSAGE),
+        GuidanceError::NotFound => missing.map_or_else(
+            || guidance_decode(GUIDANCE_DECODE_MESSAGE),
+            |(id, audience)| guidance_not_found(id, audience),
+        ),
+        GuidanceError::RateLimited { retry_after } => guidance_rate_limited(*retry_after),
+        GuidanceError::Downloading => AppError::Upstream {
+            message: GUIDANCE_DOWNLOADING_MESSAGE.to_owned(),
+            cause: UpstreamCause::Deadline,
+        },
+        GuidanceError::EntryTooLarge { source_url } => AppError::Upstream {
+            message: format!(
+                "this Service-Public page is too large to read here; read it at {source_url}."
+            ),
+            cause: UpstreamCause::Decode,
+        },
+        GuidanceError::Upstream { status, retryable, detail: _ } => {
+            guidance_upstream(*status, *retryable)
+        }
+        GuidanceError::Timeout => AppError::Upstream {
+            message: format!(
+                "the Service-Public server did not answer in time{}",
+                retry_suffix(true)
+            ),
+            cause: UpstreamCause::Timeout,
+        },
+        GuidanceError::Decode { detail: _ } => guidance_decode(GUIDANCE_DECODE_MESSAGE),
+        GuidanceError::TooLarge { detail: _ } => guidance_decode(GUIDANCE_TOO_LARGE_MESSAGE),
+    }
+}
+
+/// Numéro absent de l'archive du public demandé (05 §5.17) : le message nomme l'autre public.
+#[must_use]
+pub fn guidance_not_found(id: &SheetId, audience: Audience) -> AppError {
+    AppError::not_found(format!(
+        "No Service-Public sheet or folder {id} for {}. Try audience {}, or search with \
+         fr_search_service_public.",
+        audience.name(),
+        audience.other().name()
+    ))
+}
+
+/// Archive ou page inexploitable : non réessayable, donc sans invitation à réessayer.
+fn guidance_decode(message: &str) -> AppError {
+    AppError::Upstream { message: message.to_owned(), cause: UpstreamCause::Decode }
+}
+
+/// Refus 429 ou repos de la source : secondes arrondies au supérieur, ou « later » sans délai
+/// exploitable (absent ou nul).
+fn guidance_rate_limited(retry_after: Option<Duration>) -> AppError {
+    let message = match retry_after {
+        Some(delay) if !delay.is_zero() => {
+            format!("Service-Public server quota reached; retry in {} s.", ceil_secs(delay))
+        }
+        Some(_) | None => "Service-Public server quota reached; retry later.".to_owned(),
+    };
+    AppError::RateLimited { message, retry_after }
+}
+
+/// Panne du serveur de la DILA. Sans statut, c'est une erreur réseau.
+fn guidance_upstream(status: Option<u16>, retryable: bool) -> AppError {
+    let suffix = retry_suffix(retryable);
+    match status {
+        Some(status) => AppError::Upstream {
+            message: format!(
+                "Service-Public server HTTP {status}{}{suffix}",
+                status_reason(status)
+            ),
+            cause: UpstreamCause::Status(status),
+        },
+        None => AppError::Upstream {
+            message: format!(
+                "could not reach the Service-Public server (connection failed){suffix}"
+            ),
+            cause: UpstreamCause::Network,
+        },
+    }
+}
+
 /// Longueur maximale, en caractères, d'une valeur de l'utilisateur recopiée dans un message
 /// (E-27, 03 §2.7) : au-delà, la valeur est coupée et suivie de `…`.
 const SHOWN_MAX_CHARS: usize = 64;
@@ -573,6 +683,7 @@ pub fn domain_arg(tool: ToolName, arg: Option<&'static str>, error: &DomainError
         }
         DomainError::InvalidBoiId { input, .. } => invalid_boi_id(id, input),
         DomainError::InvalidSerie { input, .. } => invalid_serie(input),
+        DomainError::InvalidSheetId { input, .. } => invalid_sheet_id(id, input),
         DomainError::QueryWithoutWords => invalid_argument(QUERY_WITHOUT_WORDS),
         DomainError::HitKindMismatch { .. }
         | DomainError::TocTooDeep { .. }
@@ -591,6 +702,16 @@ fn invalid_boi_id(id: &str, input: &str) -> AppError {
     invalid_argument(format!(
         "{id}='{}' is not a BOFiP identifier (letters, digits and hyphens, e.g. \
          BOI-ENR-DMTG-10-50-20); find one with fr_search_bofip.",
+        shown(input)
+    ))
+}
+
+/// Numéro qui n'a pas la forme d'un numéro de Service-Public (05 §5.17) : l'argument est nommé,
+/// la valeur recopiée sous forme sûre, et le message dit où en trouver un.
+fn invalid_sheet_id(id: &str, input: &str) -> AppError {
+    invalid_argument(format!(
+        "{id}='{}' is not a Service-Public id (F for a sheet or N for a folder, then 1 to 7 \
+         digits, e.g. F1437); find one with fr_search_service_public.",
         shown(input)
     ))
 }
@@ -1062,6 +1183,10 @@ mod tests {
             // `DoctrineError` (`doctrine_error`, test `doctrine_errors_map_to_the_six_codes`).
             ToolName::FR_SEARCH_BOFIP,
             ToolName::FR_GET_BOFIP,
+            // Service-Public : de même, leurs erreurs viennent de `GuidanceError`
+            // (`guidance_error`), dont le `not_found` nomme l'autre public.
+            ToolName::FR_SEARCH_SERVICE_PUBLIC,
+            ToolName::FR_GET_SERVICE_PUBLIC,
         ];
         for tool in ToolName::ALL {
             assert!(
@@ -2248,6 +2373,17 @@ mod tests {
         }
         // `domain_arg` nomme l'argument de l'identifiant quand l'appelant le donne.
         assert_eq!(
+            domain_arg(
+                ToolName::FR_GET_BOFIP,
+                Some("id"),
+                &lf_domain::guidance::SheetId::parse("R42\n").unwrap_err()
+            ),
+            invalid(
+                "id='R42\\n' is not a Service-Public id (F for a sheet or N for a folder, then 1 \
+                 to 7 digits, e.g. F1437); find one with fr_search_service_public."
+            )
+        );
+        assert_eq!(
             domain_arg(ToolName::FR_GET_BOFIP, Some("boi"), &BoiId::parse("").unwrap_err()),
             invalid(
                 "boi='' is not a BOFiP identifier (letters, digits and hyphens, e.g. \
@@ -2267,6 +2403,160 @@ mod tests {
                     "page=200 with page_size=100 goes beyond the 10000 reachable results; narrow \
                      the query with match or date_from/date_to."
                 )
+            );
+        }
+    }
+
+    /// Les neuf variantes du port de Service-Public, avec le code, la cause et le message
+    /// attendus pour une lecture de F37096 sous Particuliers.
+    fn guidance_rows() -> Vec<(GuidanceError, ErrorCode, Option<UpstreamCause>, String)> {
+        let id = SheetId::parse("F37096").unwrap();
+        let url = lf_domain::guidance::ServicePublicUrl::read(None, Audience::Particuliers, &id);
+        vec![
+            (
+                GuidanceError::Disabled,
+                ErrorCode::ConfigError,
+                None,
+                GUIDANCE_DISABLED_MESSAGE.to_owned(),
+            ),
+            (
+                GuidanceError::NotFound,
+                ErrorCode::NotFound,
+                None,
+                "No Service-Public sheet or folder F37096 for particuliers. Try audience \
+                 entreprendre, or search with fr_search_service_public."
+                    .to_owned(),
+            ),
+            (
+                GuidanceError::RateLimited { retry_after: Some(Duration::from_millis(1_500)) },
+                ErrorCode::RateLimited,
+                None,
+                "Service-Public server quota reached; retry in 2 s.".to_owned(),
+            ),
+            (
+                GuidanceError::Downloading,
+                ErrorCode::UpstreamError,
+                Some(UpstreamCause::Deadline),
+                "Service-Public archive is still downloading; retry in a minute.".to_owned(),
+            ),
+            (
+                GuidanceError::EntryTooLarge { source_url: url },
+                ErrorCode::UpstreamError,
+                Some(UpstreamCause::Decode),
+                "this Service-Public page is too large to read here; read it at \
+                 https://www.service-public.gouv.fr/particuliers/vosdroits/F37096."
+                    .to_owned(),
+            ),
+            (
+                GuidanceError::Upstream {
+                    status: Some(503),
+                    retryable: true,
+                    detail: SENTINEL.to_owned(),
+                },
+                ErrorCode::UpstreamError,
+                Some(UpstreamCause::Status(503)),
+                format!(
+                    "Service-Public server HTTP 503{}{}",
+                    status_reason(503),
+                    retry_suffix(true)
+                ),
+            ),
+            (
+                GuidanceError::Upstream {
+                    status: None,
+                    retryable: false,
+                    detail: SENTINEL.to_owned(),
+                },
+                ErrorCode::UpstreamError,
+                Some(UpstreamCause::Network),
+                format!(
+                    "could not reach the Service-Public server (connection failed){}",
+                    retry_suffix(false)
+                ),
+            ),
+            (
+                GuidanceError::Timeout,
+                ErrorCode::UpstreamError,
+                Some(UpstreamCause::Timeout),
+                format!("the Service-Public server did not answer in time{}", retry_suffix(true)),
+            ),
+            (
+                GuidanceError::Decode { detail: SENTINEL.to_owned() },
+                ErrorCode::UpstreamError,
+                Some(UpstreamCause::Decode),
+                "the Service-Public archive could not be read; report it.".to_owned(),
+            ),
+            (
+                GuidanceError::TooLarge { detail: SENTINEL.to_owned() },
+                ErrorCode::UpstreamError,
+                Some(UpstreamCause::Decode),
+                "the Service-Public archive is too large to load (over 64 MiB); report it."
+                    .to_owned(),
+            ),
+        ]
+    }
+
+    #[test]
+    fn guidance_errors_map_to_their_codes_and_texts() {
+        let id = SheetId::parse("F37096").unwrap();
+        for (error, code, cause, message) in guidance_rows() {
+            let app = guidance_error(Some((&id, Audience::Particuliers)), &error);
+            assert_eq!(view(&app), (Some(code), cause, message.as_str()));
+        }
+    }
+
+    /// Aucun message de Service-Public ne nomme PISTE ni Légifrance, ni ne recopie un `detail` du
+    /// port ; tous nomment Service-Public.
+    #[test]
+    fn guidance_messages_name_service_public_and_never_echo_a_detail() {
+        let id = SheetId::parse("F37096").unwrap();
+        for (error, _, _, _) in guidance_rows() {
+            for missing in [None, Some((&id, Audience::Entreprendre))] {
+                let app = guidance_error(missing, &error);
+                let text = app.message();
+                assert!(text.contains("Service-Public"), "{text}");
+                for word in
+                    ["PISTE", "Legifrance", "Légifrance", "example.invalid", "client_secret"]
+                {
+                    assert!(!text.contains(word), "{text}");
+                }
+                assert!(text.chars().count() <= 400, "{text}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_missing_page_names_the_other_audience() {
+        let id = SheetId::parse("F2408").unwrap();
+        assert_eq!(
+            guidance_not_found(&id, Audience::Entreprendre),
+            AppError::not_found(
+                "No Service-Public sheet or folder F2408 for entreprendre. Try audience \
+                 particuliers, or search with fr_search_service_public."
+            )
+        );
+    }
+
+    #[test]
+    fn a_search_never_receives_a_guidance_not_found_and_falls_back_to_decode() {
+        assert_eq!(
+            guidance_error(None, &GuidanceError::NotFound),
+            expected_upstream(
+                UpstreamCause::Decode,
+                "the Service-Public archive could not be read; report it."
+            )
+        );
+    }
+
+    #[test]
+    fn guidance_rate_limit_without_a_usable_delay_says_later() {
+        for retry_after in [None, Some(Duration::ZERO)] {
+            assert_eq!(
+                guidance_error(None, &GuidanceError::RateLimited { retry_after }),
+                AppError::RateLimited {
+                    message: "Service-Public server quota reached; retry later.".to_owned(),
+                    retry_after,
+                }
             );
         }
     }

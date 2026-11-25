@@ -51,4 +51,9 @@ exclude_re = [
     # il rend la même `NotFound` sans second appel au port. Sortie et appels identiques (équivalent,
     # vague 3b). Le mutant `!=` -> `==` reste visé et tué.
     'resolve\.rs:\d+:\d+: replace match guard day != self\.today with true in Resolver<.a, C>::toc_of$',
+    # lf-adapter-service-public/src/archive.rs, `checked_entry` : `FLAG_ENCRYPTED | FLAG_STRONG_ENCRYPTION`
+    # masque les bits 0 (0x0001) et 6 (0x0040) des drapeaux. Deux constantes d'un seul bit, distincts :
+    # leur ou et leur ou exclusif valent tous deux 0x0041, donc le masque, et la sortie, ne changent pas
+    # (équivalent, T-MS-42). Les mutants `&` et `!=` du même test restent visés et tués.
+    'archive\.rs:\d+:\d+: replace \| with \^ in checked_entry$',
 ]

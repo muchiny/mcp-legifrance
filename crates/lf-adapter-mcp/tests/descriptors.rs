@@ -7,7 +7,7 @@
 //! lisent pas le verrou, qui ne change qu'à l'intégration d'une vague.
 //!
 //! **Surface.** `SURFACE` dit ce que le serveur annonce (instructions, capacités) : la surface
-//! complète (v0.3), qui sert exactement les 15 outils du catalogue de 05 §5.0.1. Le test de surface
+//! complète (v0.3), qui sert exactement les 17 outils du catalogue de 05 §5.0.1. Le test de surface
 //! est strict : tous les outils annoncés sont servis, et aucun n'est hors du catalogue.
 //!
 //! **Parité (P-003).** Le verrou de la référence Python 0.5.3 (`tools.lock.json`) n'est pas dans le
@@ -157,12 +157,19 @@ mod descriptors {
     /// Les deux outils qu'ajoute la v0.2 (M6).
     const V02_TOOLS: [&str; 2] = ["fr_verify_citations", "fr_resolve"];
 
-    /// Les cinq outils qu'ajoute la v0.3 : trois au jalon M7, puis les deux du BOFiP (jalon MB),
-    /// à la fin.
-    const V03_TOOLS: [&str; 5] =
-        ["fr_get_related", "fr_diff_article", "fr_search_all", "fr_search_bofip", "fr_get_bofip"];
+    /// Les sept outils qu'ajoute la v0.3 : trois au jalon M7, puis les deux du BOFiP (jalon MB),
+    /// puis les deux de Service-Public (jalon MS), à la fin.
+    const V03_TOOLS: [&str; 7] = [
+        "fr_get_related",
+        "fr_diff_article",
+        "fr_search_all",
+        "fr_search_bofip",
+        "fr_get_bofip",
+        "fr_search_service_public",
+        "fr_get_service_public",
+    ];
 
-    /// Les outils que `surface` annonce : 8 en v0.1, 10 en v0.2, 15 en v0.3.
+    /// Les outils que `surface` annonce : 8 en v0.1, 10 en v0.2, 17 en v0.3.
     fn announced(surface: Surface) -> BTreeSet<String> {
         let upto = match surface {
             Surface::V01 => 0,
@@ -341,10 +348,10 @@ mod descriptors {
         assert!(missing.is_empty(), "{SURFACE:?} annonce des outils non servis : {missing:?}");
         let unknown: Vec<_> = served.difference(&catalogue).collect();
         assert!(unknown.is_empty(), "outils hors du catalogue de 05 §5.0.1 : {unknown:?}");
-        // La surface servie est la complète : exactement les 15 outils, ni plus ni moins.
+        // La surface servie est la complète : exactement les 17 outils, ni plus ni moins.
         assert_eq!(SURFACE, Surface::V03);
-        assert_eq!(served, catalogue, "la surface complète sert exactement les 15 outils");
-        assert_eq!(catalogue.len(), 15);
+        assert_eq!(served, catalogue, "la surface complète sert exactement les 17 outils");
+        assert_eq!(catalogue.len(), 17);
 
         // Ordre et contenu stables (05 §9.1) : triés par nom, les mêmes dans les trois ères.
         let legacy = wire_tools(Era::Legacy20251125).await;
@@ -829,7 +836,7 @@ mod descriptors {
     #[test]
     fn the_surfaces_announce_8_then_10_then_15_tools() {
         let counts = [Surface::V01, Surface::V02, Surface::V03].map(|s| announced(s).len());
-        assert_eq!(counts, [8, 10, 15]);
+        assert_eq!(counts, [8, 10, 17]);
         assert!(announced(Surface::V01).is_subset(&announced(Surface::V02)));
         assert!(announced(Surface::V02).is_subset(&announced(Surface::V03)));
     }

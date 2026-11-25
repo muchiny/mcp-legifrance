@@ -1,0 +1,111 @@
+---
+source: crates/lf-adapter-mcp/src/views/search_service_public.rs
+expression: schema
+---
+{
+  "properties": {
+    "attribution": {
+      "type": "string"
+    },
+    "guidance_note": {
+      "description": "What Service-Public sheets are, and the limit of this source.",
+      "type": "string"
+    },
+    "has_more": {
+      "description": "True if the next page exists.",
+      "type": "boolean"
+    },
+    "hits": {
+      "items": {
+        "properties": {
+          "audience": {
+            "enum": [
+              "particuliers",
+              "entreprendre"
+            ],
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "sheet",
+              "folder",
+              "theme"
+            ],
+            "type": "string"
+          },
+          "path": {
+            "description": "Place in the site, from the broadest heading to the narrowest.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "source_url": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "updated": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "audience",
+          "kind",
+          "title",
+          "source_url"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "note": {
+      "type": "string"
+    },
+    "page": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "source_files": {
+      "description": "The archive searched for each audience.",
+      "items": {
+        "properties": {
+          "date": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "name"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "total": {
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "total",
+    "page",
+    "has_more",
+    "hits",
+    "attribution",
+    "source_files",
+    "guidance_note"
+  ],
+  "type": "object"
+}

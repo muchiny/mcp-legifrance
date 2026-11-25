@@ -147,9 +147,9 @@ mod security {
 
     /// Régression : D-07. Chaque outil que `tools/list` annonce, appelé avec une entrée vide (rejetée
     /// pour la plupart, acceptée pour `fr_coverage`), produit exactement une ligne d'audit à son nom,
-    /// écrite avant que la réponse ne parte. La liste annoncée est celle des quinze outils
-    /// enregistrés (`ToolName::ALL`, les deux du BOFiP compris) : un outil ajouté sans audit ou sans
-    /// test ferait échouer ce test.
+    /// écrite avant que la réponse ne parte. La liste annoncée est celle des dix-sept outils
+    /// enregistrés (`ToolName::ALL`, les deux du BOFiP et les deux de Service-Public compris) : un
+    /// outil ajouté sans audit ou sans test ferait échouer ce test.
     #[tokio::test]
     async fn every_tool_goes_through_audited() {
         let audit = tempfile::tempdir().expect("a temporary directory");
@@ -783,6 +783,12 @@ mod security {
     /// le préfixe de la grammaire des adresses rendues dans `source_url` ; il n'est jamais appelé.
     /// Et `data.economie.gouv.fr`, l'hôte exact, en `https` seul : le portail du jeu `bofip-vigueur`,
     /// seule adresse que `lf-adapter-bofip` appelle, fixée dans le code (ADR-0028, décision 4).
+    ///
+    /// Service-Public (ADR-0033, décisions 4 et 6), hôtes exacts en `https` seul :
+    /// `www.service-public.gouv.fr` et `entreprendre.service-public.gouv.fr`, préfixes des
+    /// adresses publiques rendues dans `source_url`, jamais appelés ; et
+    /// `lecomarquage.service-public.gouv.fr`, l'hôte des archives du jour, seule adresse que
+    /// `lf-adapter-service-public` appelle, fixée dans le code.
     fn allowlisted(url: &str) -> bool {
         let Some((scheme, rest)) = url.split_once("://") else { return false };
         if rest.contains('@') {
@@ -800,6 +806,9 @@ mod security {
                     || name == "www.legifrance.gouv.fr"
                     || name == "bofip.impots.gouv.fr"
                     || name == "data.economie.gouv.fr"
+                    || name == "www.service-public.gouv.fr"
+                    || name == "entreprendre.service-public.gouv.fr"
+                    || name == "lecomarquage.service-public.gouv.fr"
                     || rest.starts_with("github.com/muchiny/mcp-legifrance")
             }
             "http" => matches!(name, "127.0.0.1" | "localhost" | "[::1]"),
@@ -820,10 +829,35 @@ mod security {
         }
     }
 
+    /// Vrai si `text`, le fichier d'un module, déclare son sous-module `tests` sous `#[cfg(test)]`
+    /// (`mod tests;`, le code dans `tests.rs` à côté) : ce fichier-là n'entre pas dans le binaire.
+    fn declares_test_module(text: &str) -> bool {
+        let lines: Vec<&str> = text.lines().map(str::trim).collect();
+        lines.windows(2).any(|pair| {
+            pair[0] == "#[cfg(test)]"
+                && pair[1].strip_suffix("mod tests;").is_some_and(|before| {
+                    before.is_empty() || before == "pub(crate) " || before == "pub(super) "
+                })
+        })
+    }
+
+    /// Vrai si `file` est un `tests.rs` que son module parent (`page.rs` pour `page/tests.rs`)
+    /// déclare sous `#[cfg(test)]`.
+    fn is_test_module_file(file: &Path) -> bool {
+        file.file_name().is_some_and(|name| name == "tests.rs")
+            && file
+                .parent()
+                .and_then(|dir| fs::read_to_string(dir.with_extension("rs")).ok())
+                .is_some_and(|parent| declares_test_module(&parent))
+    }
+
     /// Régression : D-04. Aucune URL littérale du code de production (`crates/*/src`, hors modules
     /// de test) ne sort de la liste blanche : hôtes `*.piste.gouv.fr`, `www.legifrance.gouv.fr`,
-    /// dépôt du projet, boucle locale, et les deux hôtes exacts du BOFiP (voir `allowlisted`). Une URL pour un autre hôte (télémétrie, manifeste distant) y
-    /// serait vue. L'analyse elle-même est vérifiée sur des exemples, et ne lit pas zéro fichier.
+    /// dépôt du projet, boucle locale, et les hôtes exacts du BOFiP et de Service-Public (voir
+    /// `allowlisted`). Une URL pour un autre hôte (télémétrie, manifeste distant) y serait vue.
+    /// Un module de test est soit la fin d'un fichier après `#[cfg(test)]`, soit un `tests.rs`
+    /// que son parent déclare sous `#[cfg(test)]`. L'analyse elle-même est vérifiée sur des
+    /// exemples, et ne lit pas zéro fichier.
     #[test]
     fn production_sources_contain_only_allowlisted_urls() {
         // L'analyse voit les URL piégées et laisse passer les permises.
@@ -843,6 +877,13 @@ mod security {
                       let m = \"https://data.economie.gouv.fr.example.org/\";\n\
                       let n = \"https://economie.gouv.fr/\";\n\
                       let o = \"http://data.economie.gouv.fr/\";\n\
+                      let p = \"https://www.service-public.gouv.fr/particuliers/vosdroits/F1\";\n\
+                      let q = \"https://entreprendre.service-public.gouv.fr/vosdroits/F1\";\n\
+                      let r = \"https://lecomarquage.service-public.gouv.fr/vdd/3.5/part/zip/x.zip\";\n\
+                      let s = \"https://service-public.gouv.fr/particuliers/vosdroits/F1\";\n\
+                      let t = \"https://www.service-public.gouv.fr.example.org/\";\n\
+                      let u = \"http://www.service-public.gouv.fr/\";\n\
+                      let v = \"https://associations.service-public.gouv.fr/\";\n\
                       #[cfg(test)]\nmod tests { let z = \"https://tests.example.org\"; }\n";
         let verdicts: Vec<(usize, bool)> = url_hosts(production_part(sample))
             .iter()
@@ -866,8 +907,30 @@ mod security {
                 (14, false),
                 (15, false),
                 (16, false),
+                (17, true),
+                (18, true),
+                (19, true),
+                (20, false),
+                (21, false),
+                (22, false),
+                (23, false),
             ]
         );
+
+        // Un `tests.rs` n'est sauté que si son parent le déclare sous `#[cfg(test)]`.
+        let declared = [
+            ("#[cfg(test)]\nmod tests;\n", true),
+            ("    #[cfg(test)]\n    pub(crate) mod tests;\n", true),
+            ("#[cfg(test)]\npub(super) mod tests;\n", true),
+            ("mod tests;\n", false),
+            ("#[cfg(test)]\n\nmod tests;\n", false),
+            ("#[cfg(test)]\npub mod tests;\n", false),
+            ("#[cfg(test)]\nmod testing;\n", false),
+            ("#[cfg(test)]\nmod tests {}\n", false),
+        ];
+        for (text, expected) in declared {
+            assert_eq!(declares_test_module(text), expected, "{text:?}");
+        }
 
         let mut files = Vec::new();
         let crates = repository().join("crates");
@@ -876,11 +939,16 @@ mod security {
         }
         assert!(files.len() > 100, "only {} source files scanned", files.len());
         let mut scanned_urls = 0;
+        let mut skipped_test_files = 0;
         let mut offenders = Vec::new();
         for file in &files {
             // `testing.rs` est le module des doublons d'essai (feature `test-support`), absent du
             // binaire : ses URL visent le faux serveur local du test (`http://{}`).
             if file.file_name().is_some_and(|name| name == "testing.rs") {
+                continue;
+            }
+            if is_test_module_file(file) {
+                skipped_test_files += 1;
                 continue;
             }
             let text = fs::read_to_string(file).expect("a UTF-8 source file");
@@ -895,6 +963,8 @@ mod security {
             }
         }
         assert!(scanned_urls >= 5, "only {scanned_urls} URLs found: the scan is blind");
+        // Les modules de test de `lf-adapter-service-public` sont bien reconnus.
+        assert!(skipped_test_files >= 6, "only {skipped_test_files} test files recognised");
         assert!(offenders.is_empty(), "URLs outside the allowlist:\n{}", offenders.join("\n"));
     }
 
