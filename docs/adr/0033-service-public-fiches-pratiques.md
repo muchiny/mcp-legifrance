@@ -1,8 +1,8 @@
 # ADR-0033 — Service-Public : les fiches pratiques derrière un port distinct, lues dans l'archive du jour gardée en mémoire, cherchées sur leurs titres et résumés sans que rien ne quitte la machine
 
-- **Statut** : **Proposé** (accepté à la fusion de la PR qui le porte). Choix du propriétaire du 2026-11-23 ; Q38 révisée le 2026-11-24 après la mesure de T-MS-03.
+- **Statut** : **Accepté** (2026-11-24, fusion de la PR #103). Choix du propriétaire du 2026-11-23 ; Q38 révisée le 2026-11-24 après la mesure de T-MS-03. Précisé avec le code (PR #105, fusionnée le 2026-11-25 ; « Précisions de la revue » de la décision 3).
 - **Date** : 2026-11-23, révisé le 2026-11-24
-- **Jalons concernés** : MS (Service-Public), après la 1.4.1. Deux outils de plus : version mineure, 1.5.0 proposée.
+- **Jalons concernés** : MS (Service-Public), après la 1.4.1. Deux outils de plus : version mineure, soit la 1.5.0 (proposée ici ; `lock-descriptors --compare v1.4.1` le confirme le 2026-11-25).
 - **Questions liées** : Q38 (mode d'accès) : A le 2026-11-23, **B le 2026-11-24** ; Q39 (publics) et Q40 (lien entre la loi et les fiches) : **A**, le 2026-11-23.
 - **Amendements** : AM-100 (00 §14), qui révise le plafond des instructions d'AM-93 (00 §6). Applique la décision 7 d'[ADR-0004](0004-piste-puis-dila.md) (une source par adapter), comme [ADR-0028](0028-bofip-doctrine-fiscale.md) pour le BOFiP. Rien ne change dans les ADR du BOFiP.
 
