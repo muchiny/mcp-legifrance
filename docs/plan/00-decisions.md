@@ -233,7 +233,7 @@ Découpage en tâches `T-Mx-yy`, prérequis et critères d'acceptation : [07-feu
 | M9 Hors ligne | `lf-adapter-dila` (dumps, incréments, index tantivy), sélection d'adapter **Fin du projet : livré, LEGI seul** (`lf-adapter-dila` : ingestion en flux, index tantivy, `DilaCorpus` ; sélection par `LF_DILA_DIR`, feature `dila` absente des binaires publiés ; instantané local signalé, AM-62) ; pas de release v1.0.0 | **v1.0.0** |
 | Transverse Distribution | cargo-dist (binaire `dist`), signature Windows (Azure Artifact Signing ou SSL.com) et macOS (`codesign` + `notarytool`), MCPB (bundle unique), image OCI, registre MCP (`server.json`), `cargo install --git` | dès v0.1.0 |
 | MB BOFiP (ADR-0028 et ADR-0029, AM-92 et AM-93 ; livré en code, branche `feat/bofip`) | port `TaxDoctrine`, crate `lf-adapter-bofip`, outils `fr_search_bofip` et `fr_get_bofip`, variable `LF_BOFIP`, famille BOFiP de `fr_coverage` ; tâches `T-MB-yy` de 07 §2.11 | 1.3.0 |
-| MS Service-Public (ADR-0033, AM-100 ; non livré) | port `PublicGuidance`, crate `lf-adapter-service-public`, outils `fr_search_service_public` et `fr_get_service_public`, variable `LF_SERVICE_PUBLIC`, famille `SERVICE_PUBLIC` de `fr_coverage` ; tâches `T-MS-yy` de 07 §2.12 | 1.5.0 (proposée) |
+| MS Service-Public (ADR-0033, AM-100 ; livré, PR #105) | port `PublicGuidance`, crate `lf-adapter-service-public`, outils `fr_search_service_public` et `fr_get_service_public`, variable `LF_SERVICE_PUBLIC`, famille `SERVICE_PUBLIC` de `fr_coverage` ; tâches `T-MS-yy` de 07 §2.12 | 1.5.0 |
 
 ### 11.1 Écarts et reports
 

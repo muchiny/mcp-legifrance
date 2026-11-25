@@ -216,7 +216,7 @@ mcp-legifrance/                      # ex-mcp-ligitfrance, renommé par son prop
 │   ├── lf-app/                      # §3.7 (paquet et binaire mcp-legifrance ; répertoire lf-app, Q1)
 │   ├── lf-adapter-dila/             # §3.9 (M9 seulement)
 │   ├── lf-adapter-bofip/            # §3.10 (jalon MB : doctrine fiscale, ADR-0028 et ADR-0029)
-│   └── lf-adapter-service-public/   # §3.11 (jalon MS : fiches pratiques de Service-Public, ADR-0033 ; livré dans le code, version 1.5.0 proposée, non publiée)
+│   └── lf-adapter-service-public/   # §3.11 (jalon MS : fiches pratiques de Service-Public, ADR-0033 ; livré en 1.5.0)
 ├── xtask/                           # §3.8 : check-arch (livré), record-fixture (livré, plan 2h), lock-descriptors, instructions-size (M4)
 ├── tests/                           # données de test partagées, pas un crate (chemins : 06 §1.4, qui fait foi)
 │   ├── tools.lock.json              # verrou des descripteurs (cargo xtask lock-descriptors --update, M4 ; 05 §9) — 00-decisions §10
@@ -708,7 +708,7 @@ pub fn registered_tool_names() -> Vec<&'static str>;   // pour les tests de coh�
 - **Sélection** : `enum AnyDoctrine` dans `lf-app` (`Bofip` ou `Off`), choisi au démarrage d'après `LF_BOFIP` et `LF_DILA_DIR` (§8.2). Coupée, la source rend `DoctrineError::Disabled` sans E/S.
 - **Tests** : fixtures réelles du portail (`tests/fixtures/`, avec leur `README`), `tests/live.rs` (ignoré par défaut, job `bofip` de `live.yml`, sans secret).
 
-### 3.11 `lf-adapter-service-public` (jalon MS ; livré dans le code, version 1.5.0 proposée, non publiée)
+### 3.11 `lf-adapter-service-public` (jalon MS ; livré en 1.5.0)
 
 - **Responsabilité** : `ServicePublicGuidance: PublicGuidance` (port de `lf-application`, `ports/guidance.rs`), lecture des fiches pratiques de Service-Public.gouv.fr et d'Entreprendre.Service-Public.gouv.fr (DILA, ADR-0033). L'archive du jour `vosdroits-latest.zip` de chaque public est téléchargée au premier besoin, gardée en mémoire et jamais écrite sur disque ; la recherche et la lecture se font dans cette copie, sans requête : ni mot cherché ni numéro de fiche ne quitte la machine. Ce port est distinct de `LegalCorpus` et de `TaxDoctrine` : le crate ne connaît aucune entité de Légifrance, et n'appelle jamais Légifrance (les références légales d'une fiche sont des adresses lues, jamais suivies).
 - **Fichiers** : `client.rs` (client unique et requête fermée : deux adresses fixes, `https` seul, aucune redirection, corps borné à 64 Mio, aucun réessai, repos après un 429, erreurs sans adresse), `archive.rs` (lecteur de l'archive : sous-ensemble du format servi, entrées bornées à 2 Mio après décompression, somme CRC-32 vérifiée), `xml.rs` (lecteur XML : `DOCTYPE` et entités inconnues refusés, profondeur et nombre d'éléments bornés), `page.rs` (page XML vers le domaine : blocs, références de Légifrance, menu), `store.rs` (archive et index de chaque public en mémoire : un téléchargement à la fois et partagé, attente bornée par l'échéance de l'appel moins une seconde, revalidation au bout de 24 h par `If-None-Match`, archive précédente servie encore 48 h après un échec, index construit hors du fil de l'appel), `guidance.rs` (le port), `testing.rs` (doublures, derrière `cfg(test)`).

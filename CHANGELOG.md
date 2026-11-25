@@ -15,7 +15,11 @@ Rubriques (`docs/plan/06-qualite.md` §13.3) : `Added`, `Changed`, `Deprecated`,
 
 ## [Unreleased]
 
-Jalon MS (ADR-0033, AM-100) : les fiches pratiques de Service-Public.gouv.fr et d'Entreprendre.Service-Public.gouv.fr, lues dans l'archive du jour de la DILA, gardée en mémoire et cherchée sur la machine. `lock-descriptors --compare v1.4.1` relève deux ajouts : la version suivante est une mineure (1.5.0 proposée).
+Rien depuis `1.5.0`.
+
+## [1.5.0] - 2026-11-25
+
+Jalon MS (ADR-0033, AM-100, AM-101 ; PR #103 et #105) : les fiches pratiques de Service-Public.gouv.fr et d'Entreprendre.Service-Public.gouv.fr, lues dans l'archive du jour de la DILA, gardée en mémoire et cherchée sur la machine. `lock-descriptors --compare v1.4.1` relève deux ajouts : version mineure, comme le propose ADR-0033.
 
 ### Added
 
@@ -569,7 +573,8 @@ Verrou des descripteurs `tests/tools.lock.json` (format 1, version du serveur `0
 
 - Domaine seulement, visible par un client à partir de M4 : citation du Conseil constitutionnel sans « - objet » (P-035), plus de `eli_uri` (P-031, P-039), sentinelle de date omise (P-030).
 
-[Unreleased]: https://github.com/muchiny/mcp-legifrance/compare/v1.4.1...HEAD
+[Unreleased]: https://github.com/muchiny/mcp-legifrance/compare/v1.5.0...HEAD
+[1.5.0]: https://github.com/muchiny/mcp-legifrance/compare/v1.4.1...v1.5.0
 [1.4.1]: https://github.com/muchiny/mcp-legifrance/compare/v1.4.0...v1.4.1
 [1.4.0]: https://github.com/muchiny/mcp-legifrance/compare/v1.3.2...v1.4.0
 [1.3.2]: https://github.com/muchiny/mcp-legifrance/compare/v1.3.1...v1.3.2
