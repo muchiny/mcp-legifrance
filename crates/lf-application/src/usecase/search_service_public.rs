@@ -537,6 +537,70 @@ mod tests {
         assert!(size <= ResponseBudget::ESTIMATE_TARGET_CHARS, "{size}");
     }
 
+    /// L'enveloppe compte le JSON compact de ses champs, la note comprise.
+    #[test]
+    fn the_envelope_costs_its_compact_json() {
+        let output = SearchServicePublicOutput {
+            audience: AudienceFilter::Particuliers,
+            total: 123,
+            page: 2,
+            has_more: false,
+            hits: Vec::new(),
+            files: Vec::new(),
+            note: None,
+        };
+        let json = r#"{"total":123,"page":2,"has_more":false,"hits":[]}"#;
+        assert_eq!(envelope_cost(&output), json.chars().count());
+        let noted = SearchServicePublicOutput {
+            has_more: true,
+            note: Some("Un \"mot\"".to_owned()),
+            ..output
+        };
+        let json = r#"{"total":123,"page":2,"has_more":true,"hits":[],"note":"Un \"mot\""}"#;
+        assert_eq!(envelope_cost(&noted), json.chars().count());
+    }
+
+    /// Un titre d'exactement 120 caractères n'est pas long : il reste entier.
+    #[test]
+    fn a_title_of_exactly_the_short_length_is_kept() {
+        let exact = "a".repeat(TITLE_SHORT_CHARS);
+        let mut kept = hit(Audience::Particuliers, "F1", &exact);
+        assert!(!shorten_title(&mut kept));
+        assert_eq!(kept.title, exact);
+        let mut cut = hit(Audience::Particuliers, "F1", &format!("{exact}b"));
+        assert!(shorten_title(&mut cut));
+        assert_eq!(cut.title, format!("{}…", "a".repeat(TITLE_SHORT_CHARS - 1)));
+    }
+
+    /// Une page juste à la cible se rend entière ; un caractère de plus raccourcit le dernier
+    /// titre.
+    #[test]
+    fn a_page_exactly_at_the_target_is_kept_whole() {
+        let page_with = |last: usize| {
+            let mut page = hits(30, &"a".repeat(1_000));
+            page.push(hit(Audience::Particuliers, "F99", &"b".repeat(last)));
+            SearchServicePublicOutput {
+                audience: AudienceFilter::Particuliers,
+                total: 31,
+                page: 1,
+                has_more: false,
+                hits: page,
+                files: Vec::new(),
+                note: None,
+            }
+        };
+        let probe = page_with(200);
+        let fixed = envelope_cost(&probe) + GUIDANCE_CONSTANTS_RESERVE_CHARS + DEGRADE_NOTE_RESERVE;
+        let last = 200 + ResponseBudget::ESTIMATE_TARGET_CHARS - fixed - page_cost(&probe.hits);
+        let mut exact = page_with(last);
+        fit_under_target(&mut exact);
+        assert_eq!(exact.note, None);
+        assert_eq!(exact.hits[30].title.chars().count(), last);
+        let mut over = page_with(last + 1);
+        fit_under_target(&mut over);
+        assert_eq!(over.note, Some(titles_note(1)));
+    }
+
     #[test]
     fn one_shortened_title_is_named_in_the_singular() {
         assert_eq!(

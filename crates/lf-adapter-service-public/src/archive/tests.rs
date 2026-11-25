@@ -531,3 +531,10 @@ proptest! {
         open_and_read_all(changed);
     }
 }
+
+/// Les bornes de l'ADR-0033 (décision 5) : 20 000 entrées, 2 Mio par entrée lue, 64 Kio par
+/// en-tête.
+#[test]
+fn the_bounds_are_those_of_the_adr() {
+    assert_eq!((ENTRIES_MAX, ENTRY_MAX_BYTES, HEAD_MAX_BYTES), (20_000, 2_097_152, 65_536));
+}

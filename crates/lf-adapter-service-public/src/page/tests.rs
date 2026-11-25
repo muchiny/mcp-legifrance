@@ -326,6 +326,30 @@ fn chapters_sections_lists_and_floating_titles_become_blocks() {
     );
 }
 
+/// Un titre posé comme un bloc forme un seul paragraphe, ses paragraphes joints ; une image ne
+/// donne aucun texte, même quand elle en porte.
+#[test]
+fn a_block_title_is_one_paragraph_and_an_image_gives_no_text() {
+    let blocks = blocks_of(
+        "<Texte><Titre><Paragraphe>Montant</Paragraphe><Paragraphe>annuel</Paragraphe></Titre>\
+         <Paragraphe>Avant <Image LienPublication=\"R2\">légende</Image>après</Paragraphe></Texte>",
+    );
+    assert_eq!(
+        blocks,
+        [
+            Block::Paragraph(vec![
+                Inline::Text("Montant".to_owned()),
+                Inline::Text(" ".to_owned()),
+                Inline::Text("annuel".to_owned()),
+            ]),
+            Block::Paragraph(vec![
+                Inline::Text("Avant ".to_owned()),
+                Inline::Text("après".to_owned()),
+            ]),
+        ]
+    );
+}
+
 #[test]
 fn inline_elements_stay_in_their_line_and_links_keep_their_number() {
     let blocks = blocks_of(

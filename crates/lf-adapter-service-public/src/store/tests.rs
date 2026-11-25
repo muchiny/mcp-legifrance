@@ -115,6 +115,22 @@ fn resources_named_files_and_unreadable_pages_are_left_out() {
     assert!(loaded.menu.is_empty());
 }
 
+/// Une page écartée sur vingt : pas encore un avertissement.
+#[test]
+fn one_dropped_page_in_twenty_is_not_a_warning() {
+    start_journal();
+    let pages: Vec<(String, Vec<u8>)> =
+        (1..=19).map(|n| (format!("F{n}.xml"), publication(&format!("F{n}")))).collect();
+    let mut entries: Vec<(&str, &[u8])> =
+        pages.iter().map(|(name, xml)| (name.as_str(), xml.as_slice())).collect();
+    entries.push(("F20.xml", b"<pas du XML"));
+    let loaded = load(P, download(zip_of(&entries))).unwrap();
+    assert_eq!(loaded.index.len(), 19);
+    let logged = journal();
+    assert!(logged.contains("pages=19 dropped=1"));
+    assert!(!logged.contains("WARN"));
+}
+
 #[test]
 fn an_archive_without_a_readable_page_is_refused() {
     let refused = load(P, download(zip_of(&[("menu.xml", MENU)]))).unwrap_err();
@@ -357,6 +373,13 @@ async fn without_an_archive_the_failure_is_returned_until_the_next_attempt() {
 
 fn body_cut() -> GuidanceError {
     GuidanceError::Upstream { status: None, retryable: true, detail: BODY_CUT.to_owned() }
+}
+
+/// Les délais de l'ADR-0033 (décision 3 et précisions de la revue).
+#[test]
+fn the_delays_are_those_of_the_adr() {
+    let delays = [FRESH_FOR, STALE_FOR, RETRY_AFTER_FAILURE, WAIT_MARGIN, STALE_WAIT, CUT_GAP_MAX];
+    assert_eq!(delays.map(|delay| delay.as_secs()), [86_400, 172_800, 60, 1, 10, 3_600]);
 }
 
 #[test]

@@ -311,6 +311,23 @@ mod tests {
         serde_json::to_value(GuidanceView::from(output)).unwrap()
     }
 
+    /// Un cran de dégradation raccourcit la lecture d'une fiche ; un dossier n'a rien à retirer.
+    #[test]
+    fn degrading_cuts_a_sheet_reading_and_leaves_a_folder() {
+        let mut sheet = GuidanceView::from(GetServicePublicOutput {
+            doc: sheet(),
+            reading: Some(reading("Un texte court.", 15)),
+            file: file(Audience::Particuliers),
+        });
+        assert!(sheet.degrade());
+        let mut folder = GuidanceView::from(GetServicePublicOutput {
+            doc: folder(),
+            reading: None,
+            file: file(Audience::Entreprendre),
+        });
+        assert!(!folder.degrade());
+    }
+
     #[test]
     fn a_sheet_carries_its_metadata_references_reading_and_mentions() {
         let output = GetServicePublicOutput {

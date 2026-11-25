@@ -482,6 +482,28 @@ mod tests {
         assert_eq!(output.reading.unwrap().note, Some(references_note(shortened)));
     }
 
+    /// Des métadonnées juste à la cible se rendent entières ; un caractère de plus raccourcit le
+    /// titre de la dernière référence.
+    #[test]
+    fn metadata_exactly_at_the_target_are_kept_whole() {
+        let doc_with = |description: usize| GuidanceDoc {
+            description: Some("d".repeat(description)),
+            ..with_references(10, 200)
+        };
+        let probe = doc_with(1);
+        let fixed = metadata_cost(&probe)
+            + GUIDANCE_CONSTANTS_RESERVE_CHARS
+            + DEGRADE_NOTE_RESERVE
+            + LIST_FIELD_RESERVE;
+        let list = list_cost(references_of(&probe), reference_cost);
+        let description = 1 + METADATA_TARGET_CHARS - fixed - list;
+        let mut exact = doc_with(description);
+        assert_eq!(fit_metadata(&mut exact), Ok(None));
+        assert!(references_of(&exact).iter().all(|r| r.title().unwrap().chars().count() == 200));
+        let mut over = doc_with(description + 1);
+        assert_eq!(fit_metadata(&mut over), Ok(Some(references_note(1))));
+    }
+
     #[test]
     fn one_shortened_reference_title_is_named_in_the_singular() {
         assert_eq!(

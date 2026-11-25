@@ -226,7 +226,6 @@ impl GuidanceIndex {
             .iter()
             .zip(0_u32..)
             .filter_map(|(page, rank)| scores.get(&rank).map(|score| (page, *score)))
-            .filter(|(_, score)| *score > 0.0)
             .collect();
         ranked.sort_by(|(left, left_score), (right, right_score)| {
             right_score.total_cmp(left_score).then_with(|| by_number(&left.id, &right.id))
@@ -647,6 +646,14 @@ mod tests {
         let tight = Budget { words: 10, postings: 10, text_bytes: 6 };
         assert!(GuidanceIndex::build_within(lazy, tight).is_err());
         assert_eq!(read, 2);
+    }
+
+    #[test]
+    fn an_index_knows_whether_it_has_pages() {
+        assert!(GuidanceIndex::default().is_empty());
+        let one = index(&[("F1", "Aide", "")]);
+        assert!(!one.is_empty());
+        assert_eq!(one.len(), 1);
     }
 
     #[test]
