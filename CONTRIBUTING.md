@@ -36,7 +36,7 @@ exigences de qualité (§10) y font foi. Ce fichier dit comment les tenir au quo
 La CI rejoue tout sur chaque PR et mute le diff de la PR, **limité aux fichiers à
 risque de `.github/mutants-scope.txt`** (D7 : 4 tranches de 120 minutes, contrôle
 agrégé `mutants (diff de la PR)`) ; le lundi, `weekly.yml` mute tout le workspace
-(4 shards) et lance les cibles de fuzz ; chaque nuit, `deny-nightly.yml` relance
+(16 tranches, AM-102) et lance les cibles de fuzz ; chaque nuit, `deny-nightly.yml` relance
 cargo-deny. Les tests live (`live.yml`, hebdomadaire et manuel, sandbox) ne bloquent
 jamais une PR et ne jouent qu'une partie des tests live du dépôt (06 §7.5).
 
