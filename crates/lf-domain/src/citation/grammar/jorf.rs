@@ -643,9 +643,11 @@ const VERSION_SUFFIX: [Step; 6] = [underscore, two_digits, dash, two_digits, das
 fn version_suffix(w: &Win, p: usize) -> Option<DateHit> {
     let end = run_steps(w, p, &VERSION_SUFFIX)?;
     let part = |a: usize, b: usize| w.value(a, b);
-    let year = u16::try_from(part(p + 7, p + 11)).unwrap_or(0);
-    let month = u8::try_from(part(p + 4, p + 6)).unwrap_or(0);
-    let day = u8::try_from(part(p + 1, p + 3)).unwrap_or(0);
+    // la date commence après le tiret bas
+    let d = p + 1;
+    let year = u16::try_from(part(d + 6, d + 10)).unwrap_or(0);
+    let month = u8::try_from(part(d + 3, d + 5)).unwrap_or(0);
+    let day = u8::try_from(part(d, d + 2)).unwrap_or(0);
     Some(DateHit::civil(end, year, month, day))
 }
 
@@ -997,9 +999,12 @@ mod tests {
         let a = by_id(url, "LEGIARTI");
         assert_eq!(a[0].value, id(IdPrefix::LegiArti, 6_419_288, None, Some("article_lc")));
         // Pas de segment, ou un segment qui ne commence pas après une barre : pas de `url_kind`.
-        for input in
-            ["/LEGIARTI000006419288", "juri/id/LEGIARTI000006419288", "x/LEGIARTI000006419288"]
-        {
+        for input in [
+            "/LEGIARTI000006419288",
+            "juri/id/LEGIARTI000006419288",
+            "x/LEGIARTI000006419288",
+            "a//LEGIARTI000006419288",
+        ] {
             let f = by_id(input, "LEGIARTI");
             assert_eq!(f[0].value, id(IdPrefix::LegiArti, 6_419_288, None, None), "{input}");
         }
@@ -1259,9 +1264,16 @@ mod tests {
     }
 
     #[test]
+    fn a_nor_is_four_letters_seven_digits_and_a_letter() {
+        assert_eq!(nor_value(&win0("ABCD1234567L"), 0, false), Some(12));
+        assert_eq!(nor_value(&win0("ABCD123456XL"), 0, false), None, "a letter among the digits");
+    }
+
+    #[test]
     fn roman_numerals_are_uppercase_and_non_empty() {
         assert_eq!(win("XII x", "XII").roman(0), Some(3));
         assert_eq!(win("XII x", "XII").roman(4), None);
+        assert_eq!(win("XII x", "XII").roman(3), None, "a boundary alone is not a numeral");
         assert_eq!(win("XIIa", "XII").roman(0), None);
         assert_eq!(win("IV.", "IV").roman(0), Some(2));
     }

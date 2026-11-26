@@ -1539,6 +1539,35 @@ mod tests {
     }
 
     #[test]
+    fn a_cycle_of_sections_is_stopped_after_two_levels_beyond_the_domain_bound() {
+        let corpus = DilaCorpus::in_memory().unwrap();
+        let mut store = corpus.writer().unwrap();
+        let looping = Section {
+            id: SECTION.into(),
+            title: Some("Boucle".into()),
+            context: TextContext::default(),
+            structure: vec![link_to(LinkTarget::Section, SECTION, None)],
+        };
+        store.put(stored_doc("code_en_vigueur", CODE, Document::Section(looping), 1)).unwrap();
+        store.commit().unwrap();
+        let view = corpus.engine().view();
+        let at = date(2026, 10, 15).unwrap();
+        let links = [link_to(LinkTarget::Section, SECTION, None)];
+        // chaque niveau de la boucle prend une entrée : le garde-fou arrête le niveau 67, avant
+        // qu'il ne prenne la sienne
+        let levels = usize::from(lf_domain::entity::TOC_MAX_DEPTH) + 2;
+        let guard = build_toc(&view, &links, at, levels).unwrap_err();
+        assert_eq!(guard, crate::map::too_deep(), "66 levels fit, the 67th trips the guard");
+        let budget = build_toc(&view, &links, at, levels - 1).unwrap_err();
+        let detail = "table of contents above the entry bound".to_owned();
+        assert_eq!(
+            budget,
+            CorpusError::TooLarge { detail },
+            "the 66th level is not refused by the guard"
+        );
+    }
+
+    #[test]
     fn grouping_keeps_the_rank_of_the_first_document_of_each_text() {
         let corpus = world();
         let view = corpus.engine().view();

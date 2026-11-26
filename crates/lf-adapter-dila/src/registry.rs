@@ -422,6 +422,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("registry.tsv");
         let line = format!("#{}\n", "x".repeat(1022));
+        assert_eq!(MAX_REGISTRY_BYTES, 1 << 20, "1 Mio");
         let lines = usize::try_from(MAX_REGISTRY_BYTES).unwrap() / line.len();
         fs::write(&path, line.repeat(lines)).unwrap();
         assert_eq!(fs::metadata(&path).unwrap().len(), MAX_REGISTRY_BYTES);
@@ -551,6 +552,26 @@ mod tests {
         assert_eq!(plan.rebuild, None);
         assert_eq!(steps(&plan), files(&[&incr(3), &incr(5)]));
         assert!(!plan.is_up_to_date());
+    }
+
+    #[test]
+    fn an_increment_stamped_like_its_global_is_not_applied_after_it() {
+        // seuls les incréments strictement postérieurs au global le suivent
+        let twin = name("LEGI_20250713-140000.tar.gz");
+        let plan = Registry::new().plan(&[name(GLOBAL_2025), twin]).unwrap();
+        assert_eq!(plan.rebuild, Some(RebuildReason::FirstBuild));
+        assert_eq!(steps(&plan), [GLOBAL_2025]);
+    }
+
+    #[test]
+    fn an_increment_stamped_like_the_last_applied_one_is_not_late() {
+        // un autre nom (la casse diffère) au même horodatage que le dernier incrément appliqué :
+        // il est appliqué à la suite, sans rejouer le global
+        let registry = built_on_2025(&[2]);
+        let twin = name("legi_20261002-212713.tar.gz");
+        let plan = registry.plan(&[name(GLOBAL_2025), incr(2), twin.clone()]).unwrap();
+        assert_eq!(plan.rebuild, None);
+        assert_eq!(steps(&plan), files(&[&twin]));
     }
 
     #[test]

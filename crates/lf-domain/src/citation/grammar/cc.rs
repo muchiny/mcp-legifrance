@@ -138,9 +138,10 @@ fn tail(c: &Cur<'_>, i: usize) -> Tail {
         })
         .unwrap_or(start + MAX_PARTIES);
     let bracket = c.ws0(parties_end);
+    let inner = bracket + 1;
     let subject_end = c
         .is(bracket, '[')
-        .then(|| (bracket + 1..bracket + MAX_SUBJECT).find(|&j| c.is(j, ']')))
+        .then(|| (inner..bracket + MAX_SUBJECT).find(|&j| c.is(j, ']')))
         .flatten();
     let after_subject = subject_end.map_or(parties_end, |j| j + 1);
     let solution = dash(after_subject).and_then(|s| {
@@ -151,7 +152,7 @@ fn tail(c: &Cur<'_>, i: usize) -> Tail {
     });
     Tail {
         parties: trimmed(c, start, parties_end),
-        subject: subject_end.and_then(|j| trimmed(c, bracket + 1, j)),
+        subject: subject_end.and_then(|j| trimmed(c, inner, j)),
         solution,
     }
 }
@@ -571,5 +572,36 @@ mod tests {
         ] {
             assert_eq!(run(scan, input, &anchors), [], "{input}");
         }
+    }
+
+    /// Parties, sujet et solution de la queue de titre qui commence au début de `text`.
+    fn queue(text: &str) -> (Option<String>, Option<String>, Option<String>) {
+        super::super::cassation::testing::read(text, |c| {
+            let got = tail(c, 0);
+            (got.parties, got.subject, got.solution)
+        })
+    }
+
+    #[test]
+    fn the_title_queue_is_bounded_and_split_on_spaced_dashes_only() {
+        // un tiret ne coupe les parties qu'entouré de deux espaces
+        let parties = "Jean-Pierre et Marie- Claire -x";
+        assert_eq!(queue(&format!(" - {parties}")), (Some(parties.into()), None, None));
+        assert_eq!(queue(" - a [b]"), (Some("a".into()), Some("b".into()), None));
+        // parties : 120 caractères au plus
+        assert_eq!(queue(&format!(" - {}", "x".repeat(200))).0, Some("x".repeat(120)));
+        // sujet : le crochet fermant est cherché dans les 400 caractères qui suivent l'ouvrant
+        assert_eq!(queue(&format!(" - [{}]", "s".repeat(420))).1, None);
+        // solution : 100 caractères au plus
+        assert_eq!(queue(&format!(" - a - {}", "y".repeat(150))).2, Some("y".repeat(100)));
+    }
+
+    #[test]
+    fn a_type_of_one_letter_cannot_come_first() {
+        let first = |text: &str| {
+            super::super::cassation::testing::read(text, |c| type_first(c, 0).is_some())
+        };
+        assert!(first("DC 2025-1173"));
+        assert!(!first("L 2025-1173"));
     }
 }

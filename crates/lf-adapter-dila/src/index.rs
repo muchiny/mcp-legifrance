@@ -259,8 +259,8 @@ fn facts(document: &Document) -> Facts {
                 ..Facts::default()
             }
         }
+        // en vigueur depuis toujours : `debut` garde la valeur par défaut, 0
         Document::Section(section) => Facts {
-            debut: 0,
             fin: OPEN_END,
             title: plain(section.title.as_deref().unwrap_or_default()),
             ..Facts::default()
@@ -269,7 +269,6 @@ fn facts(document: &Document) -> Facts {
             num: text.chronicle.num.as_deref().map(fold_num).filter(|num| !num.is_empty()),
             nor: upper(text.chronicle.nor.as_ref()),
             nature: upper(text.nature.as_ref()),
-            debut: 0,
             fin: OPEN_END,
             ..Facts::default()
         },
@@ -1055,6 +1054,8 @@ mod tests {
         assert_eq!(store.remove_text_dir(&dir).unwrap(), 0, "the removal is counted once");
         store.commit().unwrap();
         assert_eq!(engine.len(), 1, "the same text under non_vigueur is another folder");
+        assert_eq!(store.remove_text_dir("absent").unwrap(), 0);
+        assert!(!store.dirty, "removing nothing leaves nothing to commit");
     }
 
     #[test]
@@ -1225,6 +1226,92 @@ mod tests {
         let found = view.search(Tree::Code, "livre", MatchMode::All, None, 10).unwrap().unwrap();
         assert_eq!(found.docs.len(), 1, "the section chain is part of the article title");
         assert_eq!(view.articles_numbered(CID, "", date(2026, 1, 1).unwrap()).unwrap().len(), 0);
+    }
+
+    /// Numéro, NOR, nature, début, fin, titre et corps retenus pour `document`.
+    type Summary = (Option<String>, Option<String>, Option<String>, u64, u64, String, String);
+
+    fn summary(document: &Document) -> Summary {
+        let f = facts(document);
+        (f.num, f.nor, f.nature, f.debut, f.fin, f.title, f.body)
+    }
+
+    #[test]
+    fn each_kind_of_document_keeps_its_own_facts() {
+        let mut art = article(ID, "L. 36-11", "<p>corps</p>");
+        art.context.title = Some("Code".into());
+        art.context.nature = Some(" code ".into());
+        art.context.sections = vec![crate::model::SectionRef {
+            id: "LEGISCTA000006108694".into(),
+            title: "Livre".into(),
+            date_debut: None,
+            date_fin: None,
+        }];
+        let expected = (
+            Some("L36-11".into()),
+            None,
+            Some("CODE".into()),
+            20_200_101,
+            29_990_101,
+            "Code Livre".into(),
+            "corps".into(),
+        );
+        assert_eq!(summary(&Document::Article(art)), expected);
+
+        let section = Section {
+            id: "LEGISCTA000006108694".into(),
+            title: Some("<b>Titre</b> premier".into()),
+            context: TextContext::default(),
+            structure: Vec::new(),
+        };
+        let expected = (None, None, None, 0, OPEN_END, "Titre premier".into(), String::new());
+        assert_eq!(summary(&Document::Section(section)), expected);
+
+        let text_struct = TextStruct {
+            id: CID.into(),
+            nature: Some("loi".into()),
+            chronicle: Chronicle {
+                cid: None,
+                num: Some("80-217".into()),
+                nor: Some("x".into()),
+                date_publi: None,
+                date_texte: None,
+                last_modified: None,
+            },
+            versions: Vec::new(),
+            structure: Vec::new(),
+        };
+        let expected = (
+            Some("80-217".into()),
+            Some("X".into()),
+            Some("LOI".into()),
+            0,
+            OPEN_END,
+            String::new(),
+            String::new(),
+        );
+        assert_eq!(summary(&Document::TextStruct(text_struct)), expected);
+
+        let mut dated = version(CID);
+        dated.date_debut = date(2010, 3, 4);
+        dated.date_fin = date(2030, 12, 31);
+        let expected = (
+            Some("2010-1".into()),
+            Some("ABCD1034567L".into()),
+            Some("CODE".into()),
+            20_100_304,
+            20_301_231,
+            "Titre court Titre long".into(),
+            String::new(),
+        );
+        assert_eq!(summary(&Document::TextVersion(dated)), expected);
+    }
+
+    #[test]
+    fn a_number_that_folds_to_nothing_is_not_kept() {
+        let mut text = version(CID);
+        text.chronicle.num = Some("° .".into());
+        assert_eq!(summary(&Document::TextVersion(text)).0, None);
     }
 
     #[test]

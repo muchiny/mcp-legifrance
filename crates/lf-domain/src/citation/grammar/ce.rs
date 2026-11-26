@@ -414,6 +414,19 @@ mod tests {
     use crate::citation::types::{DecisionCite, Flag};
     use crate::date::CivilDate;
 
+    #[test]
+    fn a_free_formation_runs_from_its_first_character_to_a_comma_within_sixty() {
+        let end = |text: &str| read(text, |c| free_formation(c, 0).map(|(_, date)| date.end));
+        assert_eq!(end("Section, 10 mai 2020"), Some(20));
+        assert_eq!(end(", 10 mai 2020"), None, "an empty formation");
+        assert_eq!(end(&format!("{}, 10 mai 2020", "x".repeat(70))), None, "a comma too far");
+    }
+
+    #[test]
+    fn without_an_anchor_only_a_registered_number_starts_a_reading() {
+        assert_eq!(run(scan, "CE, 10 mai 2020, n° 123456", &[]), []);
+    }
+
     fn ce(formation: Option<CeFormation>, chambers: &[u8]) -> DecisionCite {
         with_court(Court::ConseilEtat { formation, chambers: chambers.to_vec() })
     }

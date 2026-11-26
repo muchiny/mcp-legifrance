@@ -254,8 +254,8 @@ impl DecisionLinks {
 /// l'article seul (« article 700 »). `code_involved` est vrai dès qu'un lien porte un code, gardé
 /// ou refusé : la garde ne voit pas un titre brut qui porte lui-même le mauvais code.
 pub(crate) fn decision_links(references: &DecisionReferences<'_>) -> DecisionLinks {
-    let options =
-        ParseOptions { strip_html: true, repair_mojibake: false, ..ParseOptions::default() };
+    // sans réparation du mojibake, comme le veut le défaut
+    let options = ParseOptions { strip_html: true, ..ParseOptions::default() };
     let cited = references.cited_case_law.map(|text| (Source::CitationJp, text));
     let applied = references.applied_texts.iter().map(|text| (Source::Liens, text.as_str()));
     let found = cited.into_iter().chain(applied).flat_map(|(source, text)| {
@@ -927,6 +927,34 @@ mod tests {
         assert_eq!(references.applied_texts.len(), MAX_ANALYSED_CHARS / 26);
         assert!(references.clipped);
         assert_eq!(decision_links(&references).links.len(), 1, "le même article, fusionné");
+    }
+
+    #[test]
+    fn merge_keeps_the_first_of_two_drafts_of_the_same_target() {
+        let draft = |citation: &str, article: Option<&str>| Draft {
+            link: LinkOut {
+                relation: Relation::AppliesText,
+                kind: CitationKind::CodeArticle,
+                citation: citation.into(),
+                id: None,
+                source_url: None,
+            },
+            act: "code:civil".into(),
+            article: article.map(str::to_owned),
+            code_involved: false,
+        };
+        let kept =
+            |drafts: &[Draft]| drafts.iter().map(|d| d.link.citation.clone()).collect::<Vec<_>>();
+        let mut drafts = Vec::new();
+        merge(&mut drafts, draft("premier", Some("1240")));
+        merge(&mut drafts, draft("second", Some("1240")));
+        assert_eq!(kept(&drafts), ["premier"], "the same article twice");
+        let mut drafts = Vec::new();
+        merge(&mut drafts, draft("acte", None));
+        merge(&mut drafts, draft("acte encore", None));
+        assert_eq!(kept(&drafts), ["acte"], "the same act twice");
+        merge(&mut drafts, draft("article", Some("1240")));
+        assert_eq!(kept(&drafts), ["article"], "the article is more precise than the act");
     }
 
     #[test]

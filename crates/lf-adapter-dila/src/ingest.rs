@@ -419,6 +419,26 @@ mod tests {
         article_xml(CID, id, "1", html)
     }
 
+    #[test]
+    fn the_default_bounds_are_16_and_64_mebibytes() {
+        assert_eq!(DEFAULT_MAX_MEMBER_BYTES, 16 << 20);
+        assert_eq!(IngestLimits::default().max_list_bytes, 16 << 20);
+        assert_eq!(MAX_TRAILING_BYTES, 64 << 20);
+    }
+
+    #[test]
+    fn a_member_of_exactly_the_maximum_size_is_read() {
+        let body = xml(ID_A, "ok");
+        let mut archive = TestArchive::new();
+        archive.file(&article_member("TNC_en_vigueur", CID, ID_A), body.as_bytes());
+        let size = u64::try_from(body.len()).unwrap();
+        let limits = IngestLimits { max_member_bytes: size, max_list_bytes: 10 };
+        let mut store = TestStore::new();
+        let report = ingest_with(archive.gz(), &mut store, &limits).unwrap();
+        assert_eq!((report.articles, report.rejected), (1, 0));
+        assert_eq!(report.content_bytes, size);
+    }
+
     fn content_of(store: &MemoryStore, key: &str) -> Option<String> {
         store.get(key).map(|doc| doc.document.as_article().unwrap().content.clone())
     }

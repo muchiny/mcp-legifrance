@@ -56,4 +56,12 @@ exclude_re = [
     # leur ou et leur ou exclusif valent tous deux 0x0041, donc le masque, et la sortie, ne changent pas
     # (équivalent, T-MS-42). Les mutants `&` et `!=` du même test restent visés et tués.
     'archive\.rs:\d+:\d+: replace \| with \^ in checked_entry$',
+    # citation/grammar/textes.rs, `title_hint` : `nested` n'est consulté au rang 0 que sur le premier
+    # caractère du titre, qui ouvre `d'` ou un mot de `TITLE_STARTS` (`portant`, `relatif`, `pour`…),
+    # lu par `word` jusqu'à une frontière. `embedded_citation` y cherche un texte (`text_core`, qui
+    # commence par une nature : loi, décret, ordonnance…) ou un article (`art_kw` : `art`, `article`,
+    # `articles`, `arts`) : aucun de ces débuts n'en est un, donc elle rend faux en ce point et
+    # `i > 0` comme `i >= 0` laissent la boucle continuer (équivalent, lot 1 de la dette de mutation).
+    # Les mutants `&&` -> `||` de la même ligne restent visés et tués.
+    'textes\.rs:\d+:\d+: replace > with >= in title_hint$',
 ]

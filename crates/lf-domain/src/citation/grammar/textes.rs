@@ -535,6 +535,20 @@ mod tests {
 
     use super::super::codes::test_support::{Row, anchors, check_rows, foreign, norm, tail};
     use super::*;
+
+    #[test]
+    fn a_finance_law_year_is_from_1500_to_2099_and_ends_on_a_boundary() {
+        assert_eq!(pour_year(" pour 2020", 0), 10);
+        assert_eq!(pour_year(" pour 1200", 0), 0, "a year out of range");
+        assert_eq!(pour_year(" pour 2020x", 0), 0, "a year glued to a letter");
+    }
+
+    #[test]
+    fn a_title_hint_stops_only_at_a_citation_that_starts_a_word() {
+        let hint = " relative à xloi n° 2020-1234 du 1er janvier 2020";
+        let want = "relative à xloi n° 2020-1234 du 1er janvier 2020";
+        assert_eq!(title_hint(hint, 0).as_deref(), Some(want));
+    }
     use crate::citation::scan::AnchorClass::{self, ArticleKeyword, TextNature};
 
     const LOI: (AnchorClass, &str) = (TextNature, "loi");

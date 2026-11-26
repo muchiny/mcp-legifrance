@@ -694,11 +694,13 @@ pub(crate) mod lex {
         fn date_iso(&self, i: usize) -> Option<DateHit> {
             let (e, y) = self.year4(i)?;
             self.is(e, '-').then_some(())?;
-            let me = self.digits(e + 1, 2, 2)?;
-            let m = u8::try_from(self.val(e + 1, me)).unwrap_or(0);
+            let ms = e + 1;
+            let me = self.digits(ms, 2, 2)?;
+            let m = u8::try_from(self.val(ms, me)).unwrap_or(0);
             (self.is(me, '-') && (1..=12).contains(&m)).then_some(())?;
-            let de = self.exact(me + 1, 2)?;
-            let d = u8::try_from(self.val(me + 1, de)).unwrap_or(0);
+            let ds = me + 1;
+            let de = self.exact(ds, 2)?;
+            let d = u8::try_from(self.val(ds, de)).unwrap_or(0);
             (1..=31).contains(&d).then_some(())?;
             Some(Self::dated(de, y, m, d))
         }
@@ -1013,7 +1015,8 @@ fn pourvoi(c: &Cur<'_>, i: usize) -> Option<(usize, Pourvoi)> {
     let yy_end = c.digits(i, 2, 2).filter(|&e| c.is(e, '-'))?;
     let mid_end = c.digits(yy_end + 1, 2, 2)?;
     let (mid_start, seq_start, end) = if c.is(mid_end, '.') {
-        (yy_end + 1, mid_end + 1, c.digits(mid_end + 1, 3, 3)?)
+        let seq_start = mid_end + 1;
+        (yy_end + 1, seq_start, c.digits(seq_start, 3, 3)?)
     } else {
         (yy_end + 1, yy_end + 3, c.digits(yy_end + 1, 5, 5)?)
     };
@@ -1841,6 +1844,40 @@ mod tests {
         assert_eq!(read("chambre", |c| c.ordinal_chamber_ends(0)), Vec::<usize>::new());
         assert_eq!(read("12", |c| c.place_ends(0)), Vec::<usize>::new());
         assert_eq!(read("Saint-Denis de La Réunion, x", |c| c.place_ends(0)), [25, 17, 14, 11]);
+    }
+
+    #[test]
+    fn lexer_bounds() {
+        // la fenêtre lue s'arrête à AFTER + BEFORE caractères de son début
+        let long = "x".repeat(1_000);
+        assert_eq!(read(&long, |c| (c.ch(479), c.ch(480))), (Some('x'), None));
+        // un jour hors de 1 à 31 n'ouvre pas de date, même suivi d'un mois et d'une année
+        assert_eq!(read("45 mai 2020", |c| c.date(0)).map(|d| d.end), None);
+        // le point ne suit qu'une abréviation, qui se lit aussi sans lui
+        assert_eq!(read("1er janv 2018", |c| c.date(0)).map(|d| d.date), Some(date(2018, 1, 1)));
+        assert_eq!(read("7 mai. 2016", |c| c.date(0)).map(|d| d.end), None);
+        // « an » sans chiffre romain n'achève pas une date républicaine
+        assert_eq!(read("3 brumaire an ; x", |c| c.date(0)).map(|d| d.end), None);
+        // un nom de lieu ne continue que sur un mot qui commence par une lettre
+        assert_eq!(read("Paris -Nord", |c| c.place_ends(0)), [5]);
+        assert_eq!(read("Saint- Denis", |c| c.place_ends(0)), [12, 6]);
+    }
+
+    #[test]
+    fn a_solution_needs_its_closing_parenthesis_and_three_to_forty_letters() {
+        assert_eq!(read("(rejet)", |c| solution(c, 0)), Some((7, "rejet".into())));
+        assert_eq!(read("(cassation", |c| solution(c, 0)), None);
+        assert_eq!(read("(ab)", |c| solution(c, 0)), None);
+    }
+
+    #[test]
+    fn form_pub_takes_letters_joined_by_plus_and_ends_on_a_boundary() {
+        let fs_b = Some((4, "FS".to_owned(), vec!['B']));
+        assert_eq!(read("FS-B+X", |c| form_pub(c, 0)), fs_b, "a plus before another letter stops");
+        assert_eq!(read("FS-BRP", |c| form_pub(c, 0)), None, "letters need a plus between them");
+        assert_eq!(read("F.", |c| form_pub(c, 0)), None, "a bare formation before a dot");
+        assert_eq!(read("FS'", |c| form_pub(c, 0)), None, "a bare formation before an apostrophe");
+        assert_eq!(read("FSX", |c| form_pub(c, 0)), None, "the formation ends on a boundary");
     }
 
     #[test]
