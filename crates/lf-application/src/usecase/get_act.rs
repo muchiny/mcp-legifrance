@@ -361,7 +361,7 @@ mod tests {
     use fixtures::{act, toc};
     use lf_domain::{
         date::{CivilDate, VersionDate},
-        id::LegiTextId,
+        id::{ArticleId, LegiTextId},
     };
     use pretty_assertions::assert_eq;
 
@@ -702,6 +702,65 @@ mod tests {
 
         assert_eq!(output.toc.len(), 1);
         assert_eq!(output.next_toc_offset, Some(1));
+    }
+
+    #[test]
+    fn a_page_that_reaches_the_target_exactly_is_kept_whole() {
+        let table = toc(3, 0, "Titre");
+        let request = TocRequest::parse(None, None).unwrap();
+        let page = table.page(0, NonZeroU32::MAX).unwrap();
+        let lines: Vec<TocLine> = page.entries.iter().map(line_of).collect();
+        let fixed = ResponseBudget::ESTIMATE_TARGET_CHARS - cost(&lines);
+
+        let whole = request.window(TOOL, &table, fixed).unwrap();
+        assert_eq!(whole.lines.len(), 3);
+        assert_eq!(whole.next_offset, None);
+        // Un caractère de plus : la dernière entrée part, la page suivante commence là.
+        let shrunk = request.window(TOOL, &table, fixed + 1).unwrap();
+        assert_eq!(shrunk.lines.len(), 2);
+        assert_eq!(shrunk.next_offset, Some(2));
+    }
+
+    #[test]
+    fn the_cost_of_a_toc_line_counts_its_fields_and_its_text() {
+        let article_id = ArticleId::parse("LEGIARTI000006419288").unwrap();
+        let line = |num: Option<&str>, etat: Option<LegalStatus>| TocLine::Article {
+            depth: 2,
+            article_id: article_id.clone(),
+            num: num.map(str::to_owned),
+            etat,
+        };
+        let section = || TocLine::Section { depth: 1, title: "Titre Ier".to_owned() };
+        // Une section : `depth` et `title`.
+        assert_eq!(cost(&[section()]), estimate_chars(2, 9));
+        // Un article : `depth` et `article_id` (20 caractères), puis `num` et `etat` (son code
+        // d'API) quand ils existent.
+        assert_eq!(cost(&[line(None, None)]), estimate_chars(2, 20));
+        assert_eq!(cost(&[line(Some("12"), None)]), estimate_chars(3, 20 + 2));
+        assert_eq!(cost(&[line(None, Some(LegalStatus::Abroge))]), estimate_chars(3, 20 + 6));
+        let full = line(Some("12"), Some(LegalStatus::Abroge));
+        assert_eq!(cost(std::slice::from_ref(&full)), estimate_chars(4, 20 + 2 + 6));
+        // Une page est la somme de ses entrées.
+        assert_eq!(cost(&[section(), full]), estimate_chars(2, 9) + estimate_chars(4, 28));
+    }
+
+    #[test]
+    fn the_metadata_estimate_counts_one_field_per_alias_and_every_text() {
+        let law = act("LOI", toc(1, 0, "Titre"));
+        // Titre, nature, numéro de parution, référence au JO et les deux alias de la fixture.
+        let texts = [
+            "LOI n° 2016-1321 du 7 octobre 2016 pour une République numérique",
+            "LOI",
+            "0235",
+            "JORF n°0235 du 8 octobre 2016",
+            "loi Lemaire",
+            "loi numérique",
+        ];
+        let chars: usize = texts.iter().map(|text| text.chars().count()).sum();
+        // 20 champs et 200 caractères fixes, plus un champ par alias.
+        assert_eq!(metadata_cost(&law, None), estimate_chars(20 + 2, 200 + chars));
+        let note = "Une note.";
+        assert_eq!(metadata_cost(&law, Some(note)), estimate_chars(20 + 2, 200 + chars + 9));
     }
 
     #[tokio::test]

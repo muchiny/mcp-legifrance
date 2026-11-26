@@ -472,6 +472,31 @@ mod tests {
         assert_eq!(cost(&link("a\"\u{1}", None)), estimate_list_chars(4, text + 1 + 2 + 6));
     }
 
+    /// L'enveloppe compte l'identifiant, la citation et la page de l'article, en caractères : des
+    /// liens qui atteignent pile la cible restent tous, un caractère de plus retire le dernier.
+    #[test]
+    fn links_that_reach_the_target_exactly_are_all_kept() {
+        let contract = article(ARTI).contract();
+        let envelope = [ARTI, contract.citation.as_str(), contract.source_url.as_str()]
+            .iter()
+            .map(|text| text.chars().count())
+            .sum();
+        let fixed = estimate_chars(ENVELOPE_FIELDS, envelope);
+        let link = |size: usize| LinkOut {
+            relation: Relation::Cites,
+            kind: CitationKind::CodeArticle,
+            citation: "x".repeat(size),
+            id: None,
+            source_url: None,
+        };
+        let room = ResponseBudget::ESTIMATE_TARGET_CHARS - fixed - cost(&link(0));
+
+        let exact = output(ARTI, &contract, vec![link(room)], None);
+        assert_eq!((exact.links.len(), exact.total, exact.truncated), (1, 1, false));
+        let over = output(ARTI, &contract, vec![link(room + 1)], None);
+        assert_eq!((over.links.len(), over.total, over.truncated), (0, 1, true));
+    }
+
     #[tokio::test]
     async fn the_estimate_cap_removes_links_from_the_end_and_says_so() {
         // Cent liens de 800 caractères : 80 000 caractères, au-delà de la cible de 42 000.

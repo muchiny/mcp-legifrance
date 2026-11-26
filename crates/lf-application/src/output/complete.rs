@@ -6,7 +6,7 @@
 //! quand il est connu, et l'indication qu'il en reste.
 
 /// Ce que `CompleteUseCase` rend : au plus 100 slugs de codes triés par pertinence.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CompleteOutput {
     /// Slugs proposés (`code-civil`, `code-du-travail`…), préfixes d'abord, 100 au plus.
     pub values: Vec<String>,
@@ -21,8 +21,8 @@ pub struct CompleteOutput {
 impl CompleteOutput {
     /// La liste vide sans information : rien à proposer.
     #[must_use]
-    pub fn empty() -> Self {
-        Self::default()
+    pub const fn empty() -> Self {
+        Self { values: Vec::new(), total: None, has_more: false }
     }
 }
 
@@ -35,6 +35,5 @@ mod tests {
     fn the_empty_output_announces_nothing() {
         let empty = CompleteOutput::empty();
         assert_eq!(empty, CompleteOutput { values: Vec::new(), total: None, has_more: false });
-        assert_eq!(empty, CompleteOutput::default());
     }
 }

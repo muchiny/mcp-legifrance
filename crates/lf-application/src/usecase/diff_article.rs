@@ -74,6 +74,10 @@ const FIELD_CLIP_CHARS: usize = 3_900;
 /// deux champs estimés, donc plus de 330 ne tiendraient de toute façon pas sous la cible.
 const MAX_HUNKS: usize = 400;
 
+// Un hunk coûte au moins deux champs (l'élément et `at`) : MAX_HUNKS hunks dépassent toujours la
+// cible, même sans enveloppe. `fit` s'en sert pour signaler les hunks écartés au-delà.
+const _: () = assert!(MAX_HUNKS * estimate_chars(2, 0) > ResponseBudget::ESTIMATE_TARGET_CHARS);
+
 /// Durée au-delà de laquelle le diff s'arrête en approximation (textes démesurés).
 const DIFF_BUDGET: Duration = Duration::from_secs(2);
 
@@ -411,8 +415,10 @@ fn fitting_tail(words: &[&str], limit: usize) -> usize {
 /// [`HUNK_TEXT_CAP`] ou que l'estimation de la réponse (enveloppe `fixed` comprise) dépasse la
 /// cible. Rend les hunks conservés et vrai si quelque chose a été coupé ou retiré.
 fn fit(mut hunks: Vec<HunkOut>, fixed: usize) -> (Vec<HunkOut>, bool) {
-    let mut truncated = hunks.len() > MAX_HUNKS;
+    // Les hunks au-delà de MAX_HUNKS partent sans lever le drapeau ici : MAX_HUNKS hunks ne
+    // tiennent jamais sous la cible (assertion sous MAX_HUNKS), le retrait par la fin le lève.
     hunks.truncate(MAX_HUNKS);
+    let mut truncated = false;
     for hunk in &mut hunks {
         truncated |= clip(&mut hunk.removed);
         truncated |= clip(&mut hunk.added);
@@ -1579,6 +1585,15 @@ mod tests {
     }
 
     #[test]
+    fn the_deadline_falls_two_seconds_after_the_call() {
+        let before = Instant::now();
+        let limit = deadline().expect("dans deux secondes tient dans un Instant");
+        let after = Instant::now();
+        assert!(limit >= before.checked_add(DIFF_BUDGET).unwrap());
+        assert!(limit <= after.checked_add(DIFF_BUDGET).unwrap());
+    }
+
+    #[test]
     fn a_side_without_words_has_a_zero_threshold_whatever_was_kept() {
         let diff = |kept, old_words, new_words| WordDiff {
             kept,
@@ -1701,6 +1716,33 @@ mod tests {
         // Élément, `at` et trois textes : cinq champs.
         assert_eq!(hunk_cost(&hunk(1, Some("ab"), Some("cd"), Some("ef"))), estimate_chars(5, 6));
         assert_eq!(hunk_cost(&hunk(1, None, None, Some("ef"))), estimate_chars(3, 2));
+    }
+
+    #[test]
+    fn a_single_clipped_passage_raises_the_flag_on_either_side() {
+        let long = "r".repeat(5_000);
+        let (removed, truncated) = fit(vec![hunk(0, None, Some(&long), None)], 1_000);
+        assert!(truncated, "passage retiré coupé");
+        assert_eq!(removed[0].removed.as_deref().unwrap().chars().count(), FIELD_CLIP_CHARS + 1);
+        let (added, truncated) = fit(vec![hunk(0, None, None, Some(&long))], 1_000);
+        assert!(truncated, "passage ajouté coupé");
+        assert_eq!(added[0].added.as_deref().unwrap().chars().count(), FIELD_CLIP_CHARS + 1);
+    }
+
+    #[test]
+    fn hunks_that_reach_the_target_exactly_are_kept() {
+        let small = hunk(0, None, Some("a"), None);
+        let fixed = ResponseBudget::ESTIMATE_TARGET_CHARS - hunk_cost(&small);
+        assert_eq!(fit(vec![small.clone()], fixed), (vec![small.clone()], false));
+        // Un caractère d'enveloppe de plus : le hunk part.
+        assert_eq!(fit(vec![small], fixed + 1), (vec![], true));
+    }
+
+    #[test]
+    fn the_envelope_is_estimated_at_132_characters_besides_the_citation() {
+        // L'identifiant (20), puis pour chacune des deux versions son identifiant (20), ses deux
+        // dates (10 chacune) et son code d'état (16).
+        assert_eq!(ENVELOPE_TEXT_CHARS, 132);
     }
 
     #[tokio::test]

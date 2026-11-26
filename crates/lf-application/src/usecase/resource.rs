@@ -531,6 +531,16 @@ mod tests {
     }
 
     #[test]
+    fn a_uri_of_exactly_512_bytes_is_read_and_one_more_byte_is_refused() {
+        let head = "legifrance://article/";
+        let id = "A".repeat(MAX_URI_BYTES - head.len());
+        let at_cap = format!("{head}{id}");
+        assert_eq!(at_cap.len(), 512);
+        assert_eq!(ResourceRef::parse(&at_cap).unwrap(), ResourceRef::Article(id));
+        assert!(ResourceRef::parse(&format!("{at_cap}A")).is_err());
+    }
+
+    #[test]
     fn uris_outside_the_grammar_are_invalid_arg() {
         let long = format!("legifrance://article/{}", "A".repeat(600));
         let outside = [

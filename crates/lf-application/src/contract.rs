@@ -656,7 +656,8 @@ fn sample_page(query: &SearchQuery) -> SearchPage {
 }
 
 /// Corps de texte à la table des matières désordonnée dans le brouillon : un article et une
-/// section titrée qui porte un article, pour que le tri par `int_ordre` joue.
+/// section titrée qui porte un article, pour que le tri par `int_ordre` joue. Sans lui, l'article
+/// passerait avant la section (A7) ; avec lui, la section, d'`int_ordre` 1, vient d'abord.
 fn sample_body(title: &str, nature: &str, since: VersionDate) -> TextBody {
     let article = |id: &str, num: &str, int_ordre: i64| ArticleDraft {
         id: Some(id.to_owned()),
@@ -668,11 +669,11 @@ fn sample_body(title: &str, nature: &str, since: VersionDate) -> TextBody {
         sections: vec![SectionDraft {
             id: Some("LEGISCTA000033205040".to_owned()),
             title: Some("Titre Ier".to_owned()),
-            int_ordre: Some(2),
+            int_ordre: Some(1),
             articles: vec![article("LEGIARTI000033205126", "1", 1)],
             ..SectionDraft::default()
         }],
-        articles: vec![article("LEGIARTI000006419288", "L1", 1)],
+        articles: vec![article("LEGIARTI000006419288", "L1", 2)],
     };
     TextBody {
         title: Some(title.to_owned()),
@@ -853,6 +854,8 @@ fn sample_agreement(id: &AccoTextId) -> CompanyAgreement {
 mod tests {
     use super::*;
 
+    use lf_domain::contract::Eli;
+
     use crate::testing::PortRequest;
 
     #[tokio::test]
@@ -980,6 +983,82 @@ mod tests {
     #[test]
     fn dates_before_the_sentinel_floor_are_kept() {
         assert_no_sentinel("x", &[None, CivilDate::new(2221, 12, 31)]);
+    }
+
+    #[test]
+    #[should_panic(expected = "no ELI is ever built")]
+    fn a_citation_with_an_eli_is_refused() {
+        let fx = ContractFixtures::reference();
+        let mut contract = sample_act(&fx.act, fx.version_date).contract();
+        contract.eli = Eli::parse("/eli/loi/2016/10/7/ECFI1524250L/jo/texte");
+        assert_citation(&contract, fx.act.as_str());
+    }
+
+    #[test]
+    #[should_panic(expected = "points at the document")]
+    fn a_page_of_another_document_is_refused() {
+        let fx = ContractFixtures::reference();
+        let contract = sample_act(&fx.act, fx.version_date).contract();
+        assert_consulted(&contract, fx.absent.act.as_str());
+    }
+
+    /// Une section sans titre n'est pas une entrée, mais son article garde sa profondeur : la
+    /// table saute du niveau 0 au niveau 2, ce que le contrat refuse.
+    #[test]
+    #[should_panic(expected = "toc depth 2 follows depth 0")]
+    fn a_toc_that_skips_a_depth_is_refused() {
+        let draft = TocDraft {
+            sections: vec![SectionDraft {
+                id: Some("LEGISCTA000033205040".to_owned()),
+                articles: vec![ArticleDraft {
+                    id: Some("LEGIARTI000033205126".to_owned()),
+                    ..ArticleDraft::default()
+                }],
+                ..SectionDraft::default()
+            }],
+            articles: Vec::new(),
+        };
+        assert_toc("x", &Toc::build(draft).unwrap());
+    }
+
+    /// Le faux corpus sert un texte rempli, dont la table n'est dans l'ordre qu'après le tri par
+    /// `int_ordre` : un décorateur qui perdrait un champ ou l'ordre ne rendrait plus la même
+    /// valeur à la seconde lecture.
+    #[test]
+    fn the_sample_text_is_filled_in_and_its_toc_is_sorted_by_int_ordre() {
+        let fx = ContractFixtures::reference();
+        let body = sample_act(&fx.act, fx.version_date).body;
+        assert_eq!(body.title.as_deref(), Some("Loi de test"));
+        assert_eq!(body.nature.as_deref(), Some("LOI"));
+        assert_eq!(body.etat, Some(LegalStatus::Vigueur));
+        assert_eq!(body.date_debut_version, Some(fx.version_date.as_civil()));
+        let page = body.toc.page(0, NonZeroU32::MAX).unwrap();
+        let entries: Vec<(u16, String)> = page
+            .entries
+            .iter()
+            .map(|entry| match entry.node {
+                TocEntryRef::Section { title } => (entry.depth, title.to_owned()),
+                TocEntryRef::Article(article) => {
+                    let num = article.num.as_deref().unwrap_or("-");
+                    (entry.depth, format!("{} {num}", article.article_id.as_str()))
+                }
+            })
+            .collect();
+        let expected = [
+            (1, "Titre Ier".to_owned()),
+            (2, "LEGIARTI000033205126 1".to_owned()),
+            (1, "LEGIARTI000006419288 L1".to_owned()),
+        ];
+        assert_eq!(entries, expected);
+    }
+
+    /// `find_article` du faux corpus rend le numéro des cas, pas celui de l'article d'exemple.
+    #[tokio::test]
+    async fn find_article_echoes_the_number_of_the_fixtures() {
+        let mut fx = ContractFixtures::reference();
+        fx.article_num = "10".to_owned();
+        let fake = reference_fake(&fx, 2);
+        check_find_article(&fake, &fx).await;
     }
 
     // ---- M6 et M7 : les cas de référence, puis un témoin négatif par règle ----------------------

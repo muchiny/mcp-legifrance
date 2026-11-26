@@ -408,6 +408,19 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn exactly_100_matches_are_all_served_with_nothing_left() {
+        let corpus = FakeCorpus::new();
+        let titles: Vec<String> = (0..100).map(|n| format!("Code numéro {n:03}")).collect();
+        corpus.push_list_codes(Ok(titles.iter().map(|title| listing(title, None)).collect()));
+
+        let output = run(&corpus, &CompleteGate::new(), input("code", "code")).await;
+
+        assert_eq!(output.values.len(), 100);
+        assert_eq!(output.total, Some(100));
+        assert!(!output.has_more);
+    }
+
+    #[tokio::test]
     async fn a_missing_value_proposes_every_code() {
         let corpus = FakeCorpus::new();
         corpus.push_list_codes(Ok(listings(&["Code du travail", "Code civil"])));
