@@ -668,6 +668,51 @@ mod tests {
         assert_eq!(none, target - estimate_chars(12 + 1 + 8, metadata_chars));
     }
 
+    /// Une fenêtre qui remplit pile la place restante est gardée telle quelle. La relire avec
+    /// `max_chars` égal à sa longueur ne rendrait pas la même : la coupe douce cherche dans la
+    /// seconde moitié de la fenêtre, et une fenêtre plus courte voit une fin de phrase que la
+    /// première ne voyait pas.
+    #[tokio::test]
+    async fn a_window_that_exactly_fills_the_room_is_kept_as_is() {
+        let heavy = |text: &str| {
+            let mut heavy = article(text);
+            heavy.path = (0..10).map(|n| format!("{n} {}", "x".repeat(400))).collect();
+            heavy
+        };
+        let empty = Reading {
+            summary: None,
+            text: None,
+            text_length: 0,
+            next_offset: None,
+            passages: None,
+            note: None,
+            summary_truncated: false,
+        };
+        let room = room_for_reading(&heavy("x"), None, &empty);
+        // Une fin de phrase dans la première moitié des 40 000 caractères demandés mais dans la
+        // seconde moitié de `room`, puis un seul mot jusqu'à `room`, puis un mot sans fin au-delà
+        // de 40 000 : la fenêtre demandée se coupe au blanc qui précède `room`, faute de mieux.
+        let sentence_end = room / 2 + 500;
+        assert!(room < 38_000 && sentence_end < 20_000, "{room}");
+        let text = format!(
+            "{}. {} {}",
+            "a".repeat(sentence_end - 2),
+            "b".repeat(room - sentence_end - 1),
+            "c".repeat(41_000 - room),
+        );
+        let corpus = FakeCorpus::new();
+        corpus.push_get_article(Ok(heavy(&text)));
+        let wide = |r: &mut ReadingInput| {
+            r.detail = Some("full".to_owned());
+            r.max_chars = Some(40_000);
+        };
+
+        let output = read_with(&corpus, reading(wide)).await.unwrap();
+
+        assert_eq!(output.reading.text.as_deref().map(chars), Some(room));
+        assert_eq!(output.reading.next_offset, Some(u32::try_from(room).unwrap()));
+    }
+
     #[tokio::test]
     async fn the_window_leaves_room_for_the_metadata_under_the_estimate_target() {
         // Dix niveaux de plan de 400 caractères : les métadonnées pèsent environ 4 000 caractères,

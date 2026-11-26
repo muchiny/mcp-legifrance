@@ -241,6 +241,19 @@ mod tests {
         assert!(kept * per_entry <= ResponseBudget::ESTIMATE_TARGET_CHARS, "{kept}");
     }
 
+    #[test]
+    fn the_metadata_estimate_counts_the_title_nor_container_and_bulletin() {
+        let texts = [
+            "Annexe IX - Stipulations spécifiques",
+            "ASET2450455M",
+            "Convention collective nationale de l'édition",
+            "BO n°2024-20",
+        ];
+        let chars: usize = texts.iter().map(|text| text.chars().count()).sum();
+        // 14 champs et 200 caractères fixes.
+        assert_eq!(metadata_cost(&convention(Toc::default())), estimate_chars(14, 200 + chars));
+    }
+
     #[tokio::test]
     async fn output_metric_counts_the_returned_toc_entries() {
         let corpus = corpus_with(convention(toc(2, 3, "Titre")));

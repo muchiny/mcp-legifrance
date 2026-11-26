@@ -694,6 +694,17 @@ mod tests {
         assert_eq!(corpus.calls(), 0);
     }
 
+    /// La date du jour est transmise à l'analyse : une année future est un fait impossible,
+    /// décidé sans appel au corpus (drapeau `annee_future`).
+    #[tokio::test]
+    async fn a_future_year_is_decided_offline_from_the_clock() {
+        let corpus = FakeCorpus::new();
+        let output = resolve(&corpus, "ECLI:FR:CCASS:2099:C100399").await;
+        assert_eq!(output.candidates, []);
+        assert_eq!(output.notes, [Note::Impossible { fact: "The year is in the future" }]);
+        assert_eq!(corpus.calls(), 0);
+    }
+
     /// U03 : un numéro refusé (« 757 b ») ne résout rien et la note dit qu'un article n'a pas été
     /// lu, au lieu d'accuser l'absence de code ou de citation ; aucun appel au corpus.
     #[tokio::test]
