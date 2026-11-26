@@ -190,18 +190,6 @@ impl HttpToken {
         }
     }
 
-    /// Nombre d'octets du jeton.
-    #[must_use]
-    pub fn len(&self) -> usize {
-        self.0.len()
-    }
-
-    /// Toujours faux : un jeton n'est jamais vide.
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
-    }
-
     /// Vrai si `presented` est le jeton, comparé en temps constant.
     fn matches(&self, presented: &str) -> bool {
         constant_time_eq(self.0.as_bytes(), presented.as_bytes())
@@ -840,6 +828,44 @@ mod tests {
 
         // ---- C-54 : corps borné ------------------------------------------------------------------
 
+        #[test]
+        fn the_body_cap_is_256_kibibytes() {
+            assert_eq!(MAX_REQUEST_BODY_BYTES, 262_144);
+        }
+
+        #[tokio::test]
+        async fn a_body_of_exactly_the_cap_is_read_and_the_announced_length_alone_can_refuse() {
+            let app = app(&options(), ROOMY);
+            // Pile 256 Kio, annoncés : la couche lit le corps et le passe à rmcp.
+            let (head, tail) = (r#"{"jsonrpc":"2.0","id":1,"method":"ping","pad":""#, r#""}"#);
+            let pad = "a".repeat(MAX_REQUEST_BODY_BYTES - head.len() - tail.len());
+            let exact = format!("{head}{pad}{tail}");
+            assert_eq!(exact.len(), MAX_REQUEST_BODY_BYTES);
+            let request = post()
+                .header(header::CONTENT_LENGTH, exact.len())
+                .body(Body::from(exact))
+                .expect("a request");
+            let (status, ..) = send(&app, request).await;
+            assert_ne!(status, StatusCode::PAYLOAD_TOO_LARGE);
+
+            // Une longueur annoncée au-delà du plafond suffit, quel que soit le corps reçu.
+            let request = post()
+                .header(header::CONTENT_LENGTH, MAX_REQUEST_BODY_BYTES + 1)
+                .body(Body::from("{}"))
+                .expect("a request");
+            let (status, ..) = send(&app, request).await;
+            assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
+        }
+
+        #[tokio::test]
+        async fn reading_stops_past_the_limit_not_at_it() {
+            assert_eq!(read_limited(Body::from(vec![b'a'; 10]), 10).await, Ok(vec![b'a'; 10]));
+            assert_eq!(
+                read_limited(Body::from(vec![b'a'; 12]), 10).await,
+                Err(BodyRejection::TooLarge)
+            );
+        }
+
         #[tokio::test]
         async fn http_body_too_large_413() {
             let app = app(&options(), ROOMY);
@@ -994,6 +1020,17 @@ mod tests {
         }
 
         #[test]
+        fn a_full_bucket_keeps_counting_from_its_last_refill() {
+            // Seau plein, moins d'une période écoulée : rien ne s'ajoute, et la période en cours
+            // continue de courir depuis le dernier remplissage, pas depuis la prise.
+            let start = Instant::now();
+            let step = Duration::from_secs(1);
+            let mut bucket = Bucket::new(Limits { burst: 1, refill_every: step }, start);
+            assert_eq!(bucket.try_acquire(start + step / 2), Ok(()));
+            assert_eq!(bucket.try_acquire(start + step), Ok(()));
+        }
+
+        #[test]
         fn a_zero_refill_period_is_clamped_instead_of_dividing_by_zero() {
             let start = Instant::now();
             let mut bucket = Bucket::new(Limits { burst: 1, refill_every: Duration::ZERO }, start);
@@ -1088,8 +1125,6 @@ mod tests {
                 );
             }
             let token = HttpToken::new(TOKEN).expect("a valid token");
-            assert_eq!(token.len(), TOKEN.len());
-            assert!(!token.is_empty());
             assert_eq!(format!("{token:?}"), "HttpToken(<redacted>)");
             let options = with_token(options());
             assert!(!format!("{options:?}").contains(TOKEN));

@@ -174,7 +174,7 @@ pub struct GetCompanyAgreementInput {
 }
 
 /// Arguments de `fr_coverage` : aucun (05 §5.8).
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CoverageInput;
 
 /// Arguments de `fr_verify_citations` (05 §5.9).

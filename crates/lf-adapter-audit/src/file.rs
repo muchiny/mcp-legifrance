@@ -1083,6 +1083,76 @@ mod tests {
         assert_eq!(mode(&active), 0o644);
     }
 
+    /// Un journal vide qui préexiste compte comme neuf : ses droits ne sont lus qu'une fois qu'il
+    /// porte une ligne.
+    #[cfg(unix)]
+    #[test]
+    fn an_empty_existing_journal_is_inspected_only_once_it_has_a_line() {
+        use std::os::unix::fs::PermissionsExt;
+        let (capture, _guard) = local_capture();
+        let dir = tempfile::tempdir().unwrap();
+        fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o700)).unwrap();
+        let active = dir.path().join(ACTIVE_FILE);
+        fs::write(&active, "").unwrap();
+        fs::set_permissions(&active, fs::Permissions::from_mode(0o644)).unwrap();
+
+        let mut store = Store::new(dir.path().to_owned(), 1 << 20, Duration::from_secs(1));
+        store.append("{}\n", "2026-10-15").unwrap();
+        assert_eq!(capture.events_at(Level::WARN).len(), 0, "vide : pas encore inspecté");
+        store.append("{}\n", "2026-10-15").unwrap();
+        let warnings = capture.events_at(Level::WARN);
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        assert!(warnings[0]["message"].contains("journal"), "{warnings:?}");
+    }
+
+    /// Un fichier à la place du répertoire est refusé sans que ses droits soient lus comme ceux
+    /// d'un répertoire.
+    #[cfg(unix)]
+    #[test]
+    fn a_file_in_place_of_the_directory_is_refused_without_inspection() {
+        use std::os::unix::fs::PermissionsExt;
+        let (capture, _guard) = local_capture();
+        let base = tempfile::tempdir().unwrap();
+        let file = base.path().join("audit");
+        fs::write(&file, "x").unwrap();
+        fs::set_permissions(&file, fs::Permissions::from_mode(0o644)).unwrap();
+
+        let mut store = Store::new(file, 1 << 20, Duration::from_secs(1));
+        let error = store.append("{}\n", "2026-10-15").unwrap_err();
+        assert_eq!(error.kind, AuditErrorKind::Io, "{}", error.detail);
+        assert_eq!(capture.events_at(Level::WARN).len(), 0);
+    }
+
+    /// Un échec de lecture du répertoire autre que son absence ne vaut pas inspection : une fois
+    /// le répertoire en place, ses droits trop larges sont signalés.
+    #[cfg(unix)]
+    #[test]
+    fn a_directory_unreadable_at_first_is_inspected_once_it_exists() {
+        use std::os::unix::fs::PermissionsExt;
+        let (capture, _guard) = local_capture();
+        let base = tempfile::tempdir().unwrap();
+        let blocker = base.path().join("blocker");
+        fs::write(&blocker, "x").unwrap();
+        let dir = blocker.join("audit");
+
+        let mut store = Store::new(dir.clone(), 1 << 20, Duration::from_secs(1));
+        store.append("{}\n", "2026-10-15").unwrap_err();
+        fs::remove_file(&blocker).unwrap();
+        fs::create_dir_all(&dir).unwrap();
+        fs::set_permissions(&dir, fs::Permissions::from_mode(0o755)).unwrap();
+        store.append("{}\n", "2026-10-15").unwrap();
+
+        let warnings = capture.events_at(Level::WARN);
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        assert!(warnings[0]["message"].contains("directory"), "{warnings:?}");
+        assert_eq!(warnings[0]["mode"], "755");
+    }
+
+    #[test]
+    fn the_default_rotation_size_is_16_mebibytes() {
+        assert_eq!(JsonlAuditLog::DEFAULT_ROTATE_BYTES, 16_777_216);
+    }
+
     #[cfg(unix)]
     #[test]
     fn private_permissions_do_not_warn() {

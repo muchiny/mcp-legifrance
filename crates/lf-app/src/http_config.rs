@@ -90,9 +90,9 @@ pub(crate) fn resolve(
     token: Option<&str>,
 ) -> Result<HttpSettings, HttpConfigError> {
     let token = token.map(str::trim).filter(|value| !value.is_empty());
-    let token = HttpToken::new(token.ok_or(HttpConfigError::MissingToken)?)
-        .map_err(HttpConfigError::InvalidToken)?;
+    let token = token.ok_or(HttpConfigError::MissingToken)?;
     let weak_token = token.len() < RECOMMENDED_TOKEN_BYTES;
+    let token = HttpToken::new(token).map_err(HttpConfigError::InvalidToken)?;
     let options = HttpOptions::local(args.listen)
         .map_err(HttpConfigError::Listen)?
         .with_token(token)
@@ -126,6 +126,37 @@ mod tests {
         assert_eq!(clean(Some(OsString::from("  abc\n"))), Some("abc".to_owned()));
         // La lecture réelle ne panique pas, quel que soit l'environnement du test.
         drop(token_from_environment());
+    }
+
+    /// Rejoué dans un processus fils par le test suivant, qui pose `LF_MCP_HTTP_TOKEN` et la valeur
+    /// attendue dans `LF_TEST_EXPECTED_TOKEN`. Seul, sans cette seconde variable, il compare la
+    /// lecture à celle de la variable du processus : il passe quel que soit l'environnement.
+    #[test]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "test : la valeur attendue vient du processus parent"
+    )]
+    fn the_token_read_is_the_one_the_parent_expects() {
+        let expected = std::env::var("LF_TEST_EXPECTED_TOKEN")
+            .ok()
+            .or_else(|| clean(std::env::var_os(TOKEN_VARIABLE)));
+        assert_eq!(token_from_environment(), expected);
+    }
+
+    /// La lecture réelle, dans un processus fils : `std::env::set_var` est `unsafe` (édition
+    /// 2024) et `unsafe_code` est interdit.
+    #[test]
+    fn the_token_is_read_trimmed_from_the_process_environment() {
+        let out = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "http_config::tests::the_token_read_is_the_one_the_parent_expects"])
+            .env(TOKEN_VARIABLE, "  jeton-du-fils\n")
+            .env("LF_TEST_EXPECTED_TOKEN", "jeton-du-fils")
+            .output()
+            .unwrap();
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(out.status.success(), "{stdout}\n{stderr}");
+        assert!(stdout.contains("1 passed"), "le test fils n'a pas tourné : {stdout}");
     }
 
     #[test]
