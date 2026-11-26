@@ -2125,7 +2125,7 @@ WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 Utilisé par :
 
-- `flate2` 1.1.10 : https://github.com/rust-lang/flate2-rs
+- `flate2` 1.1.11 : https://github.com/rust-lang/flate2-rs
 
 ~~~~~~~~
 Copyright (c) 2014-2026 Alex Crichton
@@ -4255,7 +4255,7 @@ Utilisé par :
 - `clap_derive` 4.6.7 : https://github.com/clap-rs/clap
 - `clap_lex` 1.1.1 : https://github.com/clap-rs/clap
 - `serde_spanned` 1.1.2 : https://github.com/toml-rs/toml
-- `toml` 1.1.8+spec-1.1.0 : https://github.com/toml-rs/toml
+- `toml` 1.2.0+spec-1.1.0 : https://github.com/toml-rs/toml
 - `toml_datetime` 1.1.2+spec-1.1.0 : https://github.com/toml-rs/toml
 - `toml_parser` 1.1.5+spec-1.1.0 : https://github.com/toml-rs/toml
 
@@ -4896,8 +4896,8 @@ SOFTWARE.
 
 Utilisé par :
 
-- `jsonschema` 0.60.2 : https://github.com/Stranger6667/jsonschema
-- `referencing` 0.60.2 : https://github.com/Stranger6667/jsonschema
+- `jsonschema` 0.61.2 : https://github.com/Stranger6667/jsonschema
+- `referencing` 0.61.2 : https://github.com/Stranger6667/jsonschema
 
 ~~~~~~~~
 MIT License
@@ -5085,8 +5085,8 @@ Utilisé par :
 - `chrono` 0.4.45 : https://github.com/chronotope/chrono
 - `governor` 0.10.4 : https://github.com/boinkor-net/governor.git
 - `htmlescape` 0.3.1 : https://github.com/veddan/rust-htmlescape
-- `jsonschema-regex` 0.60.2 : https://github.com/Stranger6667/jsonschema
-- `jsonschema-value` 0.60.2 : https://github.com/Stranger6667/jsonschema
+- `jsonschema-regex` 0.61.2 : https://github.com/Stranger6667/jsonschema
+- `jsonschema-value` 0.61.2 : https://github.com/Stranger6667/jsonschema
 - `num-cmp` 0.1.0 : https://github.com/lifthrasiir/num-cmp
 - `ownedbytes` 0.9.0 : https://github.com/quickwit-oss/tantivy
 - `tantivy-bitpacker` 0.27.0 : https://github.com/quickwit-oss/tantivy
@@ -5510,7 +5510,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 Utilisé par :
 
-- `fancy-regex` 0.19.2 : https://github.com/fancy-regex/fancy-regex
+- `fancy-regex` 0.20.2 : https://github.com/fancy-regex/fancy-regex
 
 ~~~~~~~~
 The MIT License
