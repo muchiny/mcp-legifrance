@@ -168,6 +168,19 @@ mod tests {
     }
 
     #[test]
+    fn the_country_of_an_ecli_is_two_letters_then_a_colon() {
+        assert_eq!(run(scan, "ECLI:F1:C:2024:216", &[(EcliA, "ECLI")]), []);
+    }
+
+    #[test]
+    fn a_cassation_ordinal_is_a_chamber_prefix_then_five_digits() {
+        let malformed = vec![Flag::EcliOrdinalNonConforme(EcliFamily::Cass)];
+        assert_eq!(cass_flags("C-12345"), malformed, "a prefix of capitals or digits");
+        assert_eq!(cass_flags("C3123456"), malformed, "seven characters");
+        assert_eq!(cass_flags("C31234X"), malformed, "five digits");
+    }
+
+    #[test]
     #[should_panic(expected = "le candidat n'est pas un ECLI français")]
     fn ecli_of_refuses_a_foreign_ecli() {
         let got = only(run(scan, "ECLI:EU:C:2024:216", &[(EcliA, "ECLI")]));

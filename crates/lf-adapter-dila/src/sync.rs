@@ -229,6 +229,7 @@ mod tests {
         setup.put(G2, &global(&[(1, "g2"), (3, "g2")]));
         setup.put(I_AFTER_G2, &increment("20261002-212713", &[], &[(4, "i4")]));
         let second = setup.sync(&mut store).unwrap();
+        assert!(!second.is_up_to_date());
         assert_eq!(second.rebuild, Some(RebuildReason::NewGlobal { previous: name(G1) }));
         assert_eq!(applied(&second), [G2, I_AFTER_G2], "I1 predates the new global");
         assert_eq!(content(&store, 1).as_deref(), Some("g2"), "the old increment is not replayed");

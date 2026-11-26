@@ -202,6 +202,13 @@ mod tests {
     const PRIVACY: &str = "Chacun a droit au respect de sa vie privée";
 
     #[test]
+    fn a_typographic_quote_opens_whatever_the_straight_quotes_before_it() {
+        // un `"` seul avant la citation : le « qui suit ouvre quand même l'extrait
+        let text = format!("Selon \"l'article 9 du code civil « {PRIVACY} »");
+        assert_eq!(quote_of(&text, "l'article 9 du code civil"), Some(PRIVACY));
+    }
+
+    #[test]
     fn adjacent_quote_detects_guillemets() {
         // Exemple de 05 §5.9 : l'extrait suit la citation, séparé par « , ».
         let text =

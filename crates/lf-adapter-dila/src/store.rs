@@ -189,6 +189,7 @@ mod tests {
         let mut store = MemoryStore::new();
         assert!(store.is_empty());
         store.put(en_vigueur(1)).unwrap();
+        assert!(!store.is_empty());
         store.put(en_vigueur(2)).unwrap();
         assert_eq!(store.len(), 1);
         let key = en_vigueur(0).path.key;

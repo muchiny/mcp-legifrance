@@ -230,11 +230,9 @@ fn parse_tree(src: &[u8]) -> Result<Node, XmlError> {
                     stack.push(node);
                 }
             }
+            // un `<CONTENU/>` vide garde `raw` à `None` : `raw_at` le lit comme la chaîne vide
             Event::Empty(start) => {
-                let mut node = open(&start, &mut count)?;
-                if node.name == RAW_ELEMENT {
-                    node.raw = Some(String::new());
-                }
+                let node = open(&start, &mut count)?;
                 attach(&mut stack, &mut root, node)?;
             }
             // quick-xml refuse une fin sans début : la pile n'est jamais vide ici
@@ -750,6 +748,9 @@ mod tests {
         assert_eq!(fails(&ok, DocKind::Article), XmlError::MissingField("ID"));
         let wide = format!("<ARTICLE>{}</ARTICLE>", "<a/>".repeat(MAX_NODES));
         assert_eq!(fails(&wide, DocKind::Article), XmlError::TooManyNodes);
+        // la racine et MAX_NODES - 1 enfants : la borne exacte passe
+        let full = format!("<ARTICLE>{}</ARTICLE>", "<a/>".repeat(MAX_NODES - 1));
+        assert_eq!(fails(&full, DocKind::Article), XmlError::MissingField("ID"));
     }
 
     #[test]

@@ -313,7 +313,8 @@ fn colon(w: &Win, p: usize) -> Option<usize> {
 /// `/[A-Za-z][A-Za-z0-9]{0,6}/` : la juridiction.
 fn court(w: &Win, p: usize) -> Option<usize> {
     w.at(p).filter(char::is_ascii_alphabetic)?;
-    let mut q = p + 1;
+    // la lettre de tête est aussi alphanumérique : la boucle la compte
+    let mut q = p;
     while q < p + 7 && w.at(q).is_some_and(|c| c.is_ascii_alphanumeric()) {
         q += 1;
     }
@@ -331,9 +332,8 @@ fn ordinal(w: &Win, p: usize) -> Option<usize> {
     while q < p + 25 && w.at(q).is_some_and(|c| c.is_ascii_alphanumeric() || c == '.') {
         q += 1;
     }
-    while q > p && w.at(q - 1) == Some('.') {
-        q -= 1;
-    }
+    // sans les points de la fin
+    let q = (p..q).rev().find(|&i| w.at(i) != Some('.')).map_or(p, |i| i + 1);
     (q > p && w.bound(q)).then_some(q)
 }
 
@@ -358,6 +358,24 @@ mod tests {
     use crate::citation::grammar::jorf::testkit::{Found, find, find_pairs};
     use crate::citation::scan::AnchorClass;
     use crate::citation::types::{CitationRef, Confidence, UnsupportedCite, UnsupportedFamily};
+
+    /// Fenêtre de `text` dont l'ancre est vide, au début.
+    fn win0(text: &str) -> Win {
+        let n = crate::citation::normalize::normalize(
+            text,
+            crate::citation::normalize::Steps::default(),
+        );
+        let anchor = crate::citation::scan::Anchor { class: AnchorClass::Family, range: 0..0 };
+        Win::around(&n, &anchor).unwrap()
+    }
+
+    #[test]
+    fn ecli_parts_have_their_exact_shape() {
+        assert_eq!(country(&win0("FR"), 0), Some(2));
+        assert_eq!(country(&win0("F1"), 0), None, "two letters");
+        assert_eq!(ordinal(&win0("C12."), 0), Some(3), "the final dots are not part of it");
+        assert_eq!(ordinal(&win0("..."), 0), None, "dots alone are no ordinal");
+    }
 
     fn sink(input: &str, needle: &str) -> Vec<Found> {
         find(scan, input, AnchorClass::Sink, &[needle])

@@ -118,10 +118,9 @@ fn title(w: &Win, p: usize) -> Option<(usize, String)> {
             || (c == ' ' && (w.du_date(i).is_some() || bare_ids(w, i).is_some()))
     };
     let stop = (p..limit).find(|&i| w.at(i).is_some_and(|c| stops(c, i)));
-    let mut end = stop.or((limit == w.len()).then_some(limit))?;
-    while end > start && w.at(end - 1) == Some(' ') {
-        end -= 1;
-    }
+    let stop = stop.or((limit == w.len()).then_some(limit))?;
+    // sans les espaces de la fin
+    let end = (start..stop).rev().find(|&i| w.at(i) != Some(' ')).map_or(start, |i| i + 1);
     (end > start).then(|| (end, w.text_of(start, end)))
 }
 
@@ -234,6 +233,22 @@ mod tests {
 
     fn found(input: &str, needles: &[&str]) -> Vec<Found> {
         find(scan, input, AnchorClass::Family, needles)
+    }
+
+    /// Titre lu après la position 1 de `text`.
+    fn title_of(text: &str) -> Option<(usize, String)> {
+        let n = crate::citation::normalize::normalize(
+            text,
+            crate::citation::normalize::Steps::default(),
+        );
+        let anchor = crate::citation::scan::Anchor { class: AnchorClass::Family, range: 0..0 };
+        title(&Win::around(&n, &anchor).unwrap(), 1)
+    }
+
+    #[test]
+    fn a_title_loses_its_final_spaces_and_is_never_empty() {
+        assert_eq!(title_of("x Titre  ."), Some((7, "Titre".into())));
+        assert_eq!(title_of("x ."), None);
     }
 
     fn one(input: &str, needles: &[&str]) -> Found {

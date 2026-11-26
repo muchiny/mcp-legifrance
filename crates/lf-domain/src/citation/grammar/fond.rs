@@ -84,9 +84,7 @@ fn portalis(c: &Cur<'_>, i: usize) -> Option<usize> {
 }
 
 /// Pas de chambre (tribunaux judiciaires et autres juridictions).
-fn no_chambers(_c: &Cur<'_>, _i: usize) -> Vec<usize> {
-    Vec::new()
-}
+const NO_CHAMBERS: lex::ChambersFn = |_, _| Vec::new();
 
 /// `ca_chamber` : fins possibles, de la plus longue à la plus courte.
 fn chamber_ends(c: &Cur<'_>, i: usize) -> Vec<usize> {
@@ -127,14 +125,14 @@ fn tribunal(c: &Cur<'_>, s: usize) -> Option<Hit> {
         .litb(s, "TJ")
         .and_then(|e| c.ws(e))
         .or_else(|| c.kw(s, "tribunal judiciaire").and_then(|e| c.de(e)))?;
-    let found = lex::at_place(c, p, no_chambers, rg_part, |key| Some(key.to_uppercase()))?;
+    let found = lex::at_place(c, p, NO_CHAMBERS, rg_part, |key| Some(key.to_uppercase()))?;
     let court = Court::TribunalJudiciaire { seat: Some(found.seat.clone()) };
     Some(found.hit(s, court))
 }
 
 /// Autre juridiction du fond : libellé gardé tel qu'écrit, jusqu'au lieu compris.
 fn other_court(c: &Cur<'_>, s: usize, p: usize, number: lex::NumbersFn) -> Option<Hit> {
-    let found = lex::at_place(c, p, no_chambers, number, |key| Some(key.to_owned()))?;
+    let found = lex::at_place(c, p, NO_CHAMBERS, number, |key| Some(key.to_owned()))?;
     let court = Court::AutreJudiciaire { label: c.text(s, found.seat_end) };
     Some(found.hit(s, court))
 }

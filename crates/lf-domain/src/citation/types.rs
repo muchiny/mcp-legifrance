@@ -1826,6 +1826,13 @@ pub enum UnresolvableWhy {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_number_in_digits_has_no_sign() {
+        assert_eq!(fixed_digits_any("15"), Some(15));
+        assert_eq!(fixed_digits_any("+5"), None);
+        assert_eq!(fixed_digits_any(""), None);
+    }
     use pretty_assertions::assert_eq;
 
     fn num(text: &str) -> ArticleNum {
