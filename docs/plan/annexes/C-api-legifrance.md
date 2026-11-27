@@ -1,7 +1,7 @@
 # Annexe C — API Légifrance (PISTE), Judilibre et dumps DILA
 
 > **Statut** : annexe de référence du plan, rédigée le 2026-10-15. Elle décrit l'API Légifrance telle que la documentent le Swagger 2.4.2 et les documents de la DILA, et telle que l'observent les 16 fixtures de la référence Python. Elle est subordonnée à [00-decisions.md](../00-decisions.md). Les choix de conception de l'adapter (classification des erreurs, réessais, mémo de pagination, mapping) relèvent de [04-adapter-piste.md](../04-adapter-piste.md), qui s'appuie sur cette annexe. En cas d'écart, 00 prévaut, puis 04 ; l'écart est signalé au §9. M0-M1 sont livrés (plan 1) : pour le domaine (`CivilDate`, `Id<K>`, `Fond`), le code livré fait foi et les écarts sont en 00 §11.1 ; les points reportés par la décision du 2026-10-16 (suffixe de version, TOC en arbre `TocNode` avec renommage du `TocEntry` livré en `TocArticle`, `text::encoding`) sont des tâches de tête de M2.
-> **Jalons** : M2 (7 endpoints de v0.1, plus `/consult/legi/tableMatieres` si V-96 l'exige), M5 (pagination vérifiée en direct), M6 (résolution), M7 (navigation), M9 (dumps DILA). Judilibre : hors périmètre jusqu'à décision (§6.6).
+> **Jalons** : M2 (7 endpoints de v0.1, plus `/consult/legi/tableMatieres` si V-96 l'exige), M5 (pagination vérifiée en direct), M6 (résolution), M7 (navigation), M9 (dumps DILA). Judilibre : jalon MJ, adopté par ADR-0035 le 2026-11-27 (§6.6).
 > **Révision** : alignée sur 00 révision 2 du 2026-10-15 (amendements AM-02, AM-03, AM-28, AM-29 et AM-39 notamment ; journal en 00 §14) et sur le contrôle final du 2026-10-16 (étiquette de référence de V-76, versions de référence des crates, 00 §2). Les choix adoptés par défaut sur une question de l'utilisateur sont appliqués ici et restent à confirmer (Q3, Q10, Q15 notamment, 00 §13).
 > **Lecteurs** : développeurs de `lf-adapter-piste` et de `lf-adapter-dila`, auteurs des tests wiremock et des smoke tests live, et toute personne qui doit savoir ce que l'API permet sans accès au portail PISTE.
 > **Conventions** : « VÉRIFIÉ » signifie lu dans une source primaire (Swagger, document DILA, CGU, fixture enregistrée) ; « tiers » signifie observé dans le code d'un client tiers, sans recoupement ; **NON VÉRIFIÉ** suivi d'une étiquette `[v:…]` signifie à confirmer (registre `V-xx` dans [09-risques-et-questions.md](../09-risques-et-questions.md), liste au §8). Les extraits Rust sont **non compilés, à valider au jalon qui l'implémente**. Dans les corps de requête, les champs requis par le Swagger sont en **gras**.
@@ -33,7 +33,7 @@ Documents liés : [00-decisions.md](../00-decisions.md) §3, §4, §5, §8, §10
 - **Recherche** : 14 fonds, 32 `typeChamp`, 5 `typeRecherche`, 3 niveaux d'opérateurs, filtres sous 4 formes, facettes et tris propres à chaque fonds (document officiel), `pageSize` ≤ 100, `typePagination` à renvoyer tel que reçu.
 - **Formes JSON** : dates sous 3 encodages, horodatages de date à minuit UTC dans les fixtures (d'où `singleDate` à midi Europe/Paris, 00 §8), sentinelle `2999-01-01`, epoch négatifs, identifiants suffixés `_JJ-MM-AAAA`, texte servi deux fois (`texte` et `texteHtml`, 81 à 90 % du JSON d'une décision), mojibake dans 6 fixtures sur 16 (origine probable : la capture), fixtures élaguées et tronquées.
 - **DTO** : un module par endpoint, tolérants, tout en `Option` avec `#[serde(default)]`, quatre helpers (`null_default`, `opt_nonempty`, `opt_raw_date`, `opt_string_or_number`) et `opt_u64_lenient` (04 §8.2).
-- **Judilibre** : API distincte de la Cour de cassation, souscription PISTE séparée. Elle apporte le zonage des décisions et des rapprochements identifiés. Hors périmètre.
+- **Judilibre** : API distincte de la Cour de cassation, souscription PISTE séparée. Elle apporte le zonage des décisions, des rapprochements identifiés et les décisions des juges du fond. Adoptée par ADR-0035 (jalon MJ, §6.6).
 - **Dumps DILA** : un global `Freemium_*_global_*.tar.gz` puis des incréments quotidiens, à appliquer dans l'ordre strict, avec listes de suppression. XML LEGI documenté par le code tiers ; règle de vigueur `debut ≤ D < fin` ; Licence Ouverte 2.0. C'est la base de `lf-adapter-dila` (M9).
 
 ---
@@ -1105,16 +1105,16 @@ Le mapping DTO → entités (`SearchHit`, `SearchPage`, `Act`, `TocNode` (arbre 
 | Apport | Détail | Source |
 |---|---|---|
 | Zonage | `zones {introduction, expose, moyens, motivations, dispositif, annexes}` = listes de fragments `{start, end}` (offsets dans `text`, fin exclue, pas forcément séquentiels) : permettrait un `focus` natif (« motivations » + « dispositif ») | `[JDL]/README.md:72-160` (recherche 05 §5.3) |
-| Rapprochements identifiés | `rapprochements[{id: "JURITEXT000036780011", date, title, url, number}]`, `visa[{title}]` (textes appliqués), `contested {…}`, `files[]`, `titlesAndSummaries[]`, `themes[]` : des liens entre décisions **avec identifiants**, ce que `/consult/juri` ne fournit pas (§4.5) | fixture `[JDL]/src/data/sample_detail_resolved.json` |
+| Rapprochements identifiés | `rapprochements[{id: "JURITEXT000036780011", date, title, url, number}]`, `visa[{title}]` (textes appliqués), `contested {…}`, `files[]`, `titlesAndSummaries[]`, `themes[]` : des liens entre décisions **avec identifiants**, ce que `/consult/juri` ne fournit pas (§4.5). C'est la forme résolue (`resolve_references=true`). Sans ce paramètre, la mesure du 2026-11-27 donne `rapprochements[{title}]`, où le titre porte une balise `<a href="{identifiant Judilibre}">` ; `visa[{title}]` porte des liens vers une recherche Légifrance (**NON VÉRIFIÉ** [V-241 · judilibre-intitules] pour la forme résolue en production) | fixture `[JDL]/src/data/sample_detail_resolved.json` ; sondes du 2026-11-27 (09 §2.20) |
 | Taxonomies | `jurisdiction` ∈ {cc, ca, tj, tcom, cph} ; `field` ∈ {themes, text, introduction, expose, moyens, motivations, dispositif, annexes, visa, summary} ; `sort` ∈ {score, scorepub (défaut), date} ; `publication` ∈ {b, r, l, c, n} | `[JDL]/src/taxons/*.js` |
 | Synchronisation | `/transactionalhistory` + `/scan` | §6.3 |
-| Couverture | Cour de cassation et juridictions judiciaires (cours d'appel en civil, social et commercial depuis mars 2022, selon le calendrier de l'arrêté du 28 avril 2021) ; ni Conseil d'État ni juridictions administratives selon la taxonomie (un tiers affirme le contraire : **NON VÉRIFIÉ** [V-183 · judilibre-couverture]) | `[JDL]/README.md:5-7` |
+| Couverture | Cour de cassation et juridictions judiciaires (cours d'appel en civil, social et commercial depuis mars 2022, selon le calendrier de l'arrêté du 28 avril 2021) ; ni Conseil d'État ni juridictions administratives. **Levé le 2026-11-27** (V-183) : `/taxonomy?id=jurisdiction` rend `cc`, `ca`, `tj`, `tcom`, `cph`. Stock historique de la Cour de cassation (depuis 1947, V-238) ; cours d'appel dès 2006 (source `dila`, ancienne base CAPP), puis `jurica` | `[JDL]/README.md:5-7` ; sondes du 2026-11-27 |
 
 ### 6.2 Accès et souscription
 
 - Bases : sandbox `https://sandbox-api.piste.gouv.fr/cassation/judilibre/v1.0`, production `https://api.piste.gouv.fr/cassation/judilibre/v1.0` (`[JDL]/README.md:41-44`). VÉRIFIÉ.
 - Souscription PISTE **distincte** de Légifrance : valider les CGU « Judilibre », puis cocher l'API dans l'application (`[JDL]/README.md:26-35`). Constat live de la référence : jeton Légifrance valide → **403** sur `/healthcheck`, `/search`, `/stats` ; la demande de scope `cassation`/`judilibre` est ignorée ; `KeyId` ou absence d'authentification → **400** (référence SOURCES.md:12, DISCOVERY.md:89-93).
-- Authentification : l'OpenAPI 3.0.2 déclare un en-tête **`KeyId`** (`securitySchemes.access {type: apiKey, name: KeyId, in: header}`) ; les clients tiers utilisent un jeton OAuth `Bearer` PISTE (recherche 05 §5.1). Les deux semblent acceptés : **NON VÉRIFIÉ** [V-182 · judilibre-auth-keyid].
+- Authentification : l'OpenAPI 3.0.2 déclare un en-tête **`KeyId`** (`securitySchemes.access {type: apiKey, name: KeyId, in: header}`) ; les clients tiers utilisent un jeton OAuth `Bearer` PISTE (recherche 05 §5.1). **Levé le 2026-11-27** (V-182) : une fois l'API cochée dans l'application, le jeton `Bearer` du serveur (client-credentials, `scope=openid`, même serveur de jetons que Légifrance) suffit sur `/healthcheck`, `/taxonomy`, `/search` et `/decision` ; aucun `KeyId` (production, 16 requêtes lancées par le propriétaire).
 - L'API se déclare « version bêta […] susceptible d'évoluer » (`[JDL]/README.md`).
 
 ### 6.3 Endpoints (OpenAPI 3.0.2, v1.2.5)
@@ -1134,15 +1134,53 @@ Le mapping DTO → entités (`SearchHit`, `SearchPage`, `Act`, `TocNode` (arbre 
 
 - `/search` : « nécessairement paginé (avec un maximum de 50 résultats par page, pour un maximum de 10 000 résultats au total) » ; contrôle `page * page_size + page_size > 10000` (`[JDL]/src/api/search.js:271`).
 - `/export` : 416 au-delà de 10 000 par partition (tiers, `[JL]/export_piste_v2.py:110-111`) ; un tiers attend 60 s sur 429.
-- Quotas « prochainement sur le portail PISTE » (`[JDL]/README.md`) : valeurs inconnues, comme pour Légifrance [V-62 · quota-piste-prod].
+- Quotas « prochainement sur le portail PISTE » (`[JDL]/README.md`) : valeurs inconnues, comme pour Légifrance [V-62 · quota-piste-prod] ; à lire dans la console (**NON VÉRIFIÉ** [V-236 · judilibre-quotas]). Aucun refus sur 16 requêtes à 1 req/s le 2026-11-27.
+- Mesuré le 2026-11-27 : `page=200&page_size=50` rend `416`, corps `{"route":"GET /search","errors":[{"msg":"Range Not Satisfiable"}]}`. Durée côté serveur (`took`) : de 30 à 167 ms, mais 6 588 ms pour une recherche limitée aux motifs (`field=motivations`).
 
 ### 6.5 Conditions
 
-Licence Ouverte 2.0, CGU PISTE, et « conditions générales d'utilisation pour la réutilisation des données issues des décisions de justice de l'ordre judiciaire diffusées en open data par la Cour de cassation » (`[JDL]/README.md:15-22`). Ces dernières (version du 6 janvier 2022, `CGU_open_data_V8.pdf`) n'ont pas été lues : **NON VÉRIFIÉ** [V-181 · cgu-judilibre]. Les décisions sont pseudonymisées (art. R. 111-10 COJ, d'après un résumé). L'interdiction de profilage des magistrats s'applique (§1.7.5).
+Licence Ouverte 2.0, CGU PISTE, et « conditions générales d'utilisation pour la réutilisation des données issues des décisions de justice de l'ordre judiciaire diffusées en open data par la Cour de cassation » (`[JDL]/README.md:15-22`). Ces dernières (version du 6 janvier 2022, `CGU_open_data_V8.pdf`) sont **lues le 2026-11-27** (V-181 levée). Elles demandent :
+- de ne pas altérer les données ;
+- de mentionner, pour chaque décision, la juridiction, la formation, le siège et la date de prononcé ;
+- de mentionner la source et la date de dernière mise à jour ;
+- de ne pas modifier la pseudonymisation ;
+- de mettre à jour une base copiée sous 72 h (recommandation) ;
+- de ne pas profiler les magistrats et les greffiers : L. 111-13 al. 3 COJ, cité avec ses peines (articles 226-18, 226-24 et 226-31 du code pénal).
+
+ADR-0035 en tire ses décisions 6 à 9. Les décisions sont pseudonymisées (art. R. 111-10 COJ, d'après un résumé). L'interdiction de profilage des magistrats s'applique (§1.7.5).
 
 ### 6.6 Position du plan
 
-Hors périmètre jusqu'à décision explicite : aucun crate `lf-adapter-judilibre` n'existe dans 00 §2, aucun outil ne l'utilise, et le fonds JURI couvre déjà la Cour de cassation. Une adoption demanderait un ADR, un amendement de 00 §2, §3 et §8 (nouvelle source derrière `LegalCorpus` ou port de jurisprudence enrichie), une seconde souscription par utilisateur, et une détection propre de l'absence d'abonnement (403 → fonctionnalité désactivée, jamais une erreur bloquante). Déclencheurs à réévaluer après v0.3.0 : besoin d'un `focus` par zone de décision, ou de `fr_get_related` avec des rapprochements identifiés plutôt qu'analysés.
+**Adoptée par ADR-0035** (2026-11-27, jalon MJ, AM-103) :
+- port distinct `JudicialOpenData`, code dans `lf-adapter-piste` (un jeton, un limiteur) ;
+- outils `fr_search_judilibre` et `fr_get_judilibre` ;
+- source active par défaut (`LF_JUDILIBRE`) ;
+- 403 rendu `config_error`, retenu 10 minutes ;
+- `GET /search` et `/decision` seulement, aucun cache ;
+- mentions des CGU à chaque décision, aucun filtre ni regroupement qui permette d'étudier un juge.
+
+*Position antérieure* : hors périmètre jusqu'à décision explicite, avec une adoption subordonnée à un ADR et à une détection propre de l'absence d'abonnement.
+
+### 6.7 Mesures (2026-11-27, production)
+
+Sondes lancées par le propriétaire depuis son application (16 requêtes GET à 1 req/s, aucun refus ; 09 §2.20).
+
+- **Identifiant** : 24 caractères hexadécimaux pour plus de 40 décisions vues.
+- **Taille du texte** : de 3 774 à 38 902 caractères (V-237).
+- **`zones`** :
+  - indices en unités UTF-16, comme le `substring` JavaScript de l'exemple officiel ;
+  - le dernier `end` dépasse la longueur du texte de 1 ;
+  - un ou deux caractères séparent les zones ;
+  - fragments non contigus (`moyens` et `motivations` alternent dans un arrêt de la Cour de cassation) ;
+  - `zones` absent pour un arrêt de cour d'appel de 2017 de source `dila`.
+- **Champs selon la juridiction** :
+  - `ecli`, `formation` et `summary` pour `cc` seulement ;
+  - `location` (`ca_paris`, `tj75056`), `solution_alt` et `nac` pour `ca` et `tj` ;
+  - `solution` de `tj` en texte libre ;
+  - `update_date` toujours présent ; `to_be_deleted` absent des quatre décisions lues.
+- **Anomalies** : une date publiée `0201-02-24` (le texte dit le 24 février 2017) ; avec `sort=date&order=asc` sur `tj`, `total` vaut 336 114 et `results` est vide.
+- **Juges** : les noms des magistrats et des greffiers figurent dans le texte (non occultés par la loi).
+- **Adresse publique** : `https://www.courdecassation.fr/decision/{id}` répond 200 par une page anti-robot (redirection JavaScript et cookies) ; contenu non lu (**NON VÉRIFIÉ** [V-239 · judilibre-adresse-publique]).
 
 ---
 
@@ -1342,9 +1380,9 @@ Aucun de ces projets n'est sous AGPL à notre connaissance (la licence du code d
 | [V-103 · id-format-hors-fixtures] | Préfixe de 8 lettres + 12 chiffres pour tous les identifiants réels. |
 | [V-104 · suffixe-version-autres-prefixes] | Suffixe `_JJ-MM-AAAA` sur d'autres préfixes que `LEGITEXT`. |
 | [V-10 · serde-json-recursion] | Levé (plan 2d, 09 §2.20) : 127 imbrications passent avec `serde_json`, 62 ou 63 niveaux de sections. |
-| [V-183 · judilibre-couverture] | Couverture réelle de Judilibre (juridictions administratives ?). |
-| [V-182 · judilibre-auth-keyid] | `KeyId` ou `Bearer` pour Judilibre, selon les endpoints. |
-| [V-181 · cgu-judilibre] | CGU open data de la Cour de cassation (V8) : obligations précises. |
+| [V-183 · judilibre-couverture] | Levé (2026-11-27, 09 §2.20) : `cc`, `ca`, `tj`, `tcom`, `cph`, aucune juridiction administrative. |
+| [V-182 · judilibre-auth-keyid] | Levé (2026-11-27, 09 §2.20) : le jeton `Bearer` de l'application abonnée suffit, sans `KeyId`. |
+| [V-181 · cgu-judilibre] | Levé (2026-11-27, 09 §2.20) : CGU V8 lues en entier ; obligations reprises par ADR-0035. |
 | [V-189 · dila-licence-par-fonds] | Licence exacte et document de présentation de chaque fonds DILA. |
 | [V-186 · dila-rythme-globaux] | Rythme de publication des globaux (dernier : 13/07/2025). |
 | [V-187 · dila-structure-archives] | Arborescence et balises sur une archive réelle de chaque fonds visé en M9. |
@@ -1397,7 +1435,7 @@ Elles sont reportées dans [09-risques-et-questions.md](../09-risques-et-questio
 6. **Copie du Swagger dans le dépôt** : versionner seulement la liste des chemins (04 §7.1) ou tout le fichier, dont la licence de redistribution n'est pas explicite ? (Proposition : liste des chemins et des définitions utilisées seulement.)
 7. **Périmètre de M9** : quels fonds DILA en v1.0 (LEGI seul, ou aussi JORF, KALI, CASS, CONSTIT, JADE, CNIL) et quel budget disque (justicelibre : plus de 40 Go pour tout) ? (Proposition : LEGI d'abord.)
 8. **Contenus `dereferenced` et `inap`** : les exclure de tout index et de toute réponse en mode HTTP distant ? (Proposition : oui par défaut.)
-9. **Judilibre** : faut-il ouvrir un ADR après v0.3.0 si le besoin de zonage ou de rapprochements identifiés se confirme ? (Proposition : réévaluer après v0.3.0, §6.6.)
+9. **Judilibre** : faut-il ouvrir un ADR après v0.3.0 si le besoin de zonage ou de rapprochements identifiés se confirme ? (Proposition : réévaluer après v0.3.0, §6.6.) **Tranchée le 2026-11-27** : ADR-0035, Q42 à Q45 = A.
 
 ---
 
