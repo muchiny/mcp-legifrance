@@ -16,6 +16,10 @@ exclude_globs = [
     "crates/lf-adapter-mcp/src/stdio.rs",
     "crates/lf-adapter-piste/examples/**", # glue d'E/S de record-fixture ; la logique est dans src/record.rs
     "fuzz/**", # cibles cargo-fuzz hors workspace (Cargo.toml exclude) : pas du code livré ; filet si le dossier y entrait
+    # écouteurs de signaux sous Windows (`#[cfg(windows)]`) : jamais compilés là où tourne la mutation
+    # (Linux), un mutant y survit toujours sans rien prouver. La compilation est vérifiée en CI sur
+    # Windows ; l'exécution ne l'est pas [V-168 · arret-windows].
+    "crates/lf-app/src/shutdown/windows.rs",
 ]
 exclude_re = [
     # dto/de.rs, `ListVisitor::visit_none` : son corps est `Ok(Vec::new())` et `Self::Value` vaut
@@ -64,4 +68,15 @@ exclude_re = [
     # `i > 0` comme `i >= 0` laissent la boucle continuer (équivalent, lot 1 de la dette de mutation).
     # Les mutants `&&` -> `||` de la même ligne restent visés et tués.
     'textes\.rs:\d+:\d+: replace > with >= in title_hint$',
+    # lf-adapter-mcp/src/server.rs, `accepted_subscription_filter` : son corps est
+    # `Some(SubscriptionFilter::new())`, et rmcp définit `SubscriptionFilter::new()` comme
+    # `Self::default()` (rmcp 3.9.0 et 3.11.0, `model.rs`, `impl SubscriptionFilter`). Le mutant
+    # `Some(Default::default())` construit donc la même valeur (équivalent, lot 3 de la dette de
+    # mutation). À revoir si une montée de rmcp change `new`.
+    'server\.rs:\d+:\d+: replace <impl ServerHandler for LegifranceServer<.*>>::accepted_subscription_filter -> Option<SubscriptionFilter> with Some\(Default::default\(\)\)$',
+    # lf-app/src/wiring.rs, `local_index` sans la feature `dila` (`#[cfg(not(feature = "dila"))]`) :
+    # la mutation compile toutes les features (`all_features` ci-dessus), donc cette version n'est
+    # jamais compilée et son mutant survit sans rien prouver. Celui de la version avec `dila` ne
+    # compile pas (`AnyCorpus` n'a pas de `Default`) : l'exclure ne perd rien (lot 3).
+    'wiring\.rs:\d+:\d+: replace local_index -> AnyCorpus with Default::default\(\)$',
 ]

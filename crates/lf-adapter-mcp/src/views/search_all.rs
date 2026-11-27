@@ -340,6 +340,32 @@ mod tests {
     }
 
     #[test]
+    fn stripping_a_hit_counts_the_snippets_of_its_articles() {
+        let article = |snippet: Option<&str>| ArticleView {
+            article_id: "LEGIARTI000006419288".to_owned(),
+            num: None,
+            snippet: snippet.map(str::to_owned),
+        };
+        // Pas d'extrait propre, mais un article qui en porte un.
+        let mut hit = HitView {
+            kind: "code".to_owned(),
+            id: "LEGITEXT000006070721".to_owned(),
+            title: None,
+            date: None,
+            nature: None,
+            etat: None,
+            idcc: None,
+            snippet: None,
+            articles: vec![article(None), article(Some("un extrait"))],
+            citation: "Code civil".to_owned(),
+            source_url: "https://www.legifrance.gouv.fr/codes/id/LEGITEXT000006070721".to_owned(),
+        };
+        assert!(hit.strip_snippets(), "l'extrait d'un article compte");
+        assert!(hit.articles.iter().all(|article| article.snippet.is_none()));
+        assert!(!hit.strip_snippets(), "plus rien à retirer");
+    }
+
+    #[test]
     fn a_group_with_no_hit_keeps_an_empty_hit_list() {
         let view = json_of(output(vec![found(Fond::Juri, 0, false, vec![])]));
         assert_eq!(

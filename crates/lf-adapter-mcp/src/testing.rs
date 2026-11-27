@@ -1150,6 +1150,25 @@ mod tests {
     }
 
     #[test]
+    fn the_server_version_is_masked_inside_arrays_too() {
+        let mut message = json!({"result": {"servers": [
+            {"name": "mcp-legifrance", "version": "1.5.0"},
+            {"name": "other", "version": "2.0"},
+        ]}});
+        redact_server_version(&mut message);
+        let masked = json!({"result": {"servers": [
+            {"name": "mcp-legifrance", "version": "[version]"},
+            {"name": "other", "version": "2.0"},
+        ]}});
+        assert_eq!(message, masked);
+    }
+
+    #[test]
+    fn the_test_pipe_holds_64_kibibytes() {
+        assert_eq!(PIPE_BYTES, 65_536);
+    }
+
+    #[test]
     fn the_common_controls_reject_what_a_server_must_never_say() {
         let sent = [json!(1), json!("a")];
         let violation = |message: Value| protocol_violation(&message, &sent);
@@ -1169,6 +1188,14 @@ mod tests {
             assert_eq!(
                 violation(json!({"jsonrpc": "2.0", "id": 1, "error": {"code": code}})),
                 None
+            );
+        }
+        // Les deux codes propres au protocole : version non supportée, ressource introuvable.
+        for code in [-32022, -32002] {
+            assert_eq!(
+                violation(json!({"jsonrpc": "2.0", "id": 1, "error": {"code": code}})),
+                None,
+                "{code}"
             );
         }
         // Messages refusés.

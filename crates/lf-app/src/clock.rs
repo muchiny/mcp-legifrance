@@ -42,7 +42,8 @@ pub(crate) fn paris_date(at: DateTime<Utc>) -> CivilDate {
         CivilDate::new(year, month, day)
     });
     exact.unwrap_or_else(|| {
-        if day.year() < 1 { VersionDate::MIN.as_civil() } else { VersionDate::MAX.as_civil() }
+        // Seules les années hors de 1 à 9999 arrivent ici : au-delà, la borne haute.
+        if day.year() > 0 { VersionDate::MAX.as_civil() } else { VersionDate::MIN.as_civil() }
     })
 }
 
@@ -89,6 +90,8 @@ mod tests {
     fn paris_date_saturates_outside_the_calendar() {
         assert_eq!(paris_date(DateTime::<Utc>::MIN_UTC), VersionDate::MIN.as_civil());
         assert_eq!(paris_date(DateTime::<Utc>::MAX_UTC), VersionDate::MAX.as_civil());
+        // L'an 0 (1 av. J.-C.) est juste sous la plage : la borne basse.
+        assert_eq!(paris_date(utc(0, 6, 1, 12, 0)), VersionDate::MIN.as_civil());
     }
 
     fn paris_wall_date(at: DateTime<Utc>) -> String {

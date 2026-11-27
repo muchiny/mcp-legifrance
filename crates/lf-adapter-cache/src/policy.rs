@@ -392,6 +392,12 @@ mod tests {
         assert_eq!(empty.weight(), size_of::<SearchPage>() + 1);
         assert_eq!(related("x", 0, 0).weight(), size_of::<RelatedLinks>());
         assert_eq!(codes("x", 0).weight(), size_of::<Vec<CodeListing>>());
+        // Les versions : la liste, puis chaque élément et son numéro.
+        assert_eq!(versions("x", 0).weight(), size_of::<Vec<ArticleVersion>>());
+        assert_eq!(
+            versions("x", 2).weight(),
+            size_of::<Vec<ArticleVersion>>() + 2 * size_of::<ArticleVersion>() + 2
+        );
         let one = page("x", 1);
         let hit = &one.hits[0];
         assert!(one.weight() > empty.weight() + size_of::<SearchHit>());

@@ -38,11 +38,12 @@ pub(crate) fn fit_under_cap<V: Serialize>(
 ) -> usize {
     let cap = ResponseBudget::HARD_CAP_CHARS;
     let mut size = measure(view);
-    while size > cap && degrade(view) {
+    while size > cap {
+        if !degrade(view) {
+            tracing::warn!(size, cap, "response still over the hard cap after degradation");
+            break;
+        }
         size = measure(view);
-    }
-    if size > cap {
-        tracing::warn!(size, cap, "response still over the hard cap after degradation");
     }
     size
 }
@@ -91,6 +92,15 @@ mod tests {
         let size = fit_under_cap(&mut view, trim_hits);
         assert_eq!(size, r#"{"hits":["alpha","beta"]}"#.len());
         assert_eq!(view.hits, ["alpha", "beta"], "aucune dégradation sous le plafond");
+    }
+
+    #[test]
+    fn a_view_of_exactly_the_cap_is_left_whole() {
+        // `{"hits":["…","y"]}` : 17 caractères de structure autour du premier texte.
+        let mut view = View { hits: vec!["x".repeat(CAP - 17), "y".to_owned()] };
+        assert_eq!(json_chars(&view), CAP);
+        assert_eq!(fit_under_cap(&mut view, trim_hits), CAP);
+        assert_eq!(view.hits.len(), 2, "pile au plafond, rien n'est retiré");
     }
 
     #[test]
