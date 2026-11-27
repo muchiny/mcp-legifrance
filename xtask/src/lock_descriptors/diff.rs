@@ -1100,6 +1100,48 @@ mod tests {
         );
     }
 
+    /// Les changements de `fr_a` entre deux versions, avec leur message.
+    fn changes(
+        old_patch: impl FnOnce(&mut Value),
+        new_patch: impl FnOnce(&mut Value),
+    ) -> Vec<(Class, String, String)> {
+        classify(&lock_with(old_patch), &lock_with(new_patch))
+            .into_iter()
+            .map(|change| (change.class, change.path, change.what))
+            .collect()
+    }
+
+    #[test]
+    fn bounds_and_extra_properties_are_named_by_their_message() {
+        let change = |class, path: &str, what: &str| (class, path.to_owned(), what.to_owned());
+        let max_length = |value: Value| {
+            move |t: &mut Value| t["inputSchema"]["properties"]["query"]["maxLength"] = value
+        };
+        let path = "/tools/fr_a/inputSchema/properties/query/maxLength";
+        // Une borne qui apparaît est ajoutée ; une borne qui n'était pas un entier change de forme.
+        assert_eq!(
+            changes(|_| {}, max_length(json!(10))),
+            [change(Class::Breaking, path, "bound added")]
+        );
+        assert_eq!(
+            changes(max_length(json!("10")), max_length(json!(10))),
+            [change(Class::Breaking, path, "bound changed shape")]
+        );
+        // `additionalProperties: false` remplacé par un schéma ouvre l'entrée : un ajout, sans
+        // comparer un booléen à un schéma.
+        assert_eq!(
+            changes(
+                |_| {},
+                |t| t["inputSchema"]["additionalProperties"] = json!({"type": "string"})
+            ),
+            [change(
+                Class::Addition,
+                "/tools/fr_a/inputSchema/additionalProperties",
+                "input opened to extra properties"
+            )]
+        );
+    }
+
     #[test]
     fn a_report_between_values_that_are_not_locks_names_the_root() {
         assert_eq!(report(&json!(null), &json!(true)), ["other fields changed: "]);

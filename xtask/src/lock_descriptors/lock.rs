@@ -119,6 +119,15 @@ mod tests {
     use pretty_assertions::assert_eq;
 
     #[test]
+    fn the_text_digest_is_the_sha256_of_the_utf8_bytes() {
+        // Vecteur de FIPS 180-2 (« abc »), le même que `printf abc | sha256sum`.
+        assert_eq!(
+            text_digest("abc"),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+    }
+
+    #[test]
     fn the_lock_has_the_shape_of_05_section_9_3() {
         let lock = build(&surface()).unwrap();
         assert_eq!(lock["lock_format"], 1);

@@ -79,4 +79,15 @@ exclude_re = [
     # jamais compilée et son mutant survit sans rien prouver. Celui de la version avec `dila` ne
     # compile pas (`AnyCorpus` n'a pas de `Default`) : l'exclure ne perd rien (lot 3).
     'wiring\.rs:\d+:\d+: replace local_index -> AnyCorpus with Default::default\(\)$',
+    # xtask/src/instructions.rs, le vrai `launch` (`#[cfg(not(test))]`) : il construit puis lance
+    # le binaire, et les tests le remplacent par un lanceur à réponses fixes (`#[cfg(test)]`). Ses
+    # mutants ne sont jamais compilés par la mutation. `make instructions` (cible de `make ci`)
+    # l'exécute à chaque fois, et échoue si les réponses manquent (lot 4).
+    'instructions\.rs:\d+:\d+: (replace launch -> .*|delete ! in launch)$',
+    # xtask/src/lock_descriptors/diff.rs, `keyword`, garde `(is > was) == lower` d'une borne
+    # entière : `schema` n'appelle `keyword` que pour deux valeurs différentes, et `number` ne lit
+    # que des entiers, que serde_json écrit d'une seule façon (sans la feature
+    # `arbitrary_precision`, que rien n'active). `is == was` n'arrive donc jamais, et `>` comme `>=`
+    # donnent le même classement (équivalent, lot 4).
+    'diff\.rs:\d+:\d+: replace > with >= in keyword$',
 ]
