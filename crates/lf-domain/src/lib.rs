@@ -15,6 +15,7 @@ pub mod error;
 pub mod fond;
 pub mod guidance;
 pub mod id;
+pub mod judilibre;
 pub mod search;
 pub mod status;
 pub mod text;

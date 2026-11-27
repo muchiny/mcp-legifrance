@@ -5,7 +5,7 @@
 //!
 //! La forme livrée est gardée (D11 du plan « fin du projet », qui tranche M1-D20) ; la fonction
 //! pure [`coverage`] la remplit (03 §4.8) : le catalogue statique des lacunes FR-001 à FR-009 et
-//! les lacunes calculées FR-101 à FR-109 d'après l'environnement, la configuration
+//! les lacunes calculées FR-101 à FR-111 d'après l'environnement, la configuration
 //! ([`ConfigFacts`]) et les fonds servis. Le domaine ne nomme aucun outil MCP : une famille porte
 //! le nom du fond (`Fond::name`), et c'est l'adapter MCP qui rattache libellé et outils à ce
 //! fond. De même, une lacune nomme le fond concerné dans `family`, vide quand elle vaut pour le
@@ -20,6 +20,10 @@
 //! ([`GuidanceSource`]) donne une lacune de famille [`GUIDANCE_FAMILY`] (FR-108 ou FR-109), après
 //! celle du BOFiP, sans changer le statut, les familles ni aucune autre lacune. Le domaine la
 //! calcule pour toute surface ; la vue l'écarte hors de la v0.3 (05 §5.8).
+//!
+//! Judilibre (ADR-0035) suit le même chemin : son état ([`JudilibreSource`]) donne une lacune de
+//! famille [`JUDILIBRE_FAMILY`] (FR-110 ou FR-111), en dernier. FR-005 garde le texte du
+//! catalogue ; la vue de la v0.3 lui substitue [`judilibre_fr005`].
 
 use std::fmt;
 
@@ -185,7 +189,23 @@ pub enum GuidanceSource {
 /// Famille (`family`) des lacunes de Service-Public, qui n'est pas un fond de Légifrance.
 pub const GUIDANCE_FAMILY: &str = "SERVICE_PUBLIC";
 
-/// Ce que la configuration du processus apprend à la couverture (03 §4.8) : six faits, sans
+/// État de la source Judilibre (ADR-0035), tel que la couverture le lit : un fait à trois états,
+/// comme [`GuidanceSource`], et sans plus d'effet sur le statut.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum JudilibreSource {
+    /// Le serveur ne sert aucun outil de Judilibre : la couverture n'en dit rien.
+    #[default]
+    NotServed,
+    /// Source active : lacune FR-110 (bêta, juridictions judiciaires seules).
+    Active,
+    /// Source coupée (`LF_JUDILIBRE=off`, valeur invalide ou mode hors ligne) : lacune FR-111.
+    Off,
+}
+
+/// Famille (`family`) des lacunes de Judilibre, qui n'est pas un fond de Légifrance.
+pub const JUDILIBRE_FAMILY: &str = "JUDILIBRE";
+
+/// Ce que la configuration du processus apprend à la couverture (03 §4.8) : sept faits, sans
 /// secret ni phrase. La liste des problèmes détectés reste dans `lf-application`
 /// (`ConfigurationState`) et n'entre pas dans le domaine.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -209,6 +229,8 @@ pub struct ConfigFacts {
     /// État de la source des fiches de Service-Public (FR-108 active, FR-109 coupée), sans effet
     /// sur le statut.
     pub guidance: GuidanceSource,
+    /// État de la source Judilibre (FR-110 active, FR-111 coupée), sans effet sur le statut.
+    pub judilibre: JudilibreSource,
 }
 
 /// Source des données de chaque famille (`SOURCE`, `coverage.py:57`).
@@ -388,6 +410,39 @@ const GUIDANCE_OFF_GAP: GapText = GapText {
     fallback: "The operator can set LF_SERVICE_PUBLIC=on; the day's archive is then downloaded from the DILA server, and neither search words nor sheet numbers are ever sent.",
 };
 
+/// FR-110 : source Judilibre active. La base est en bêta et ne sert que l'ordre judiciaire.
+const JUDILIBRE_BETA_GAP: GapText = GapText {
+    id: "FR-110",
+    fond: None,
+    missing: "Judilibre is in beta and serves judicial courts only (no administrative courts); what is published varies by court and period.",
+    fallback: "Check the court and date of each decision; for administrative case law, search fond CETAT.",
+};
+
+/// FR-111 : source Judilibre coupée (`LF_JUDILIBRE=off`, valeur invalide, ou mode hors ligne).
+const JUDILIBRE_OFF_GAP: GapText = GapText {
+    id: "FR-111",
+    fond: None,
+    missing: "The Judilibre source is turned off (LF_JUDILIBRE, or offline mode): fr_search_judilibre and fr_get_judilibre fail with config_error.",
+    fallback: "The operator can set LF_JUDILIBRE=on; it needs PISTE credentials and an application subscribed to the Judilibre API (free).",
+};
+
+/// FR-005 telle que la surface qui sert les outils de Judilibre la rend (05 §5.8) : les décisions
+/// des juges du fond ne sont plus dites hors d'atteinte. Les autres surfaces gardent le texte du
+/// catalogue, à l'octet.
+const JUDILIBRE_FR005: GapText = GapText {
+    id: "FR-005",
+    fond: Some(Fond::Juri),
+    missing: "Only a selection of courts of appeal and almost no first-instance decisions are on Légifrance (JURI).",
+    fallback: "Search them with fr_search_judilibre (Judilibre, open data of the Cour de cassation).",
+};
+
+/// FR-005 reformulée pour la surface qui sert les outils de Judilibre : la vue la substitue à
+/// celle du catalogue (05 §5.8), que la source soit active ou coupée.
+#[must_use]
+pub fn judilibre_fr005() -> CoverageGap {
+    JUDILIBRE_FR005.to_gap()
+}
+
 /// Les trois lacunes reformulées quand le serveur sert les outils du BOFiP (05 §5.8) : la
 /// doctrine fiscale n'est plus dite non couverte (FR-009), et une configuration PISTE absente ou
 /// invalide ne fait plus échouer « tous les outils » (FR-102, FR-104), puisque ceux du BOFiP
@@ -429,6 +484,11 @@ fn guidance_gap(text: &GapText) -> CoverageGap {
     CoverageGap { family: GUIDANCE_FAMILY.to_owned(), ..text.to_gap() }
 }
 
+/// Lacune de Judilibre : celle de `text`, de famille [`JUDILIBRE_FAMILY`].
+fn judilibre_gap(text: &GapText) -> CoverageGap {
+    CoverageGap { family: JUDILIBRE_FAMILY.to_owned(), ..text.to_gap() }
+}
+
 /// Famille d'un fond servi : le nom du fond, sans outil (hors du domaine). Interrogée en direct,
 /// sauf depuis l'instantané local, qui n'a pas de date de capture rendue.
 fn family_of(fond: Fond, local_snapshot: bool) -> CoverageFamily {
@@ -455,12 +515,16 @@ fn family_of(fond: Fond, local_snapshot: bool) -> CoverageFamily {
 ///   (bac à sable), FR-102 (identifiants absents), FR-103 (hôte personnalisé), FR-104 (problème
 ///   de configuration), FR-105 (instantané local, LEGI seul), puis celle du BOFiP : FR-106
 ///   (source active) ou FR-107 (source coupée), puis celle de Service-Public : FR-108 (source
-///   active) ou FR-109 (source coupée). Jamais vide.
+///   active) ou FR-109 (source coupée), puis celle de Judilibre : FR-110 (source active) ou
+///   FR-111 (source coupée). Jamais vide.
 /// - **BOFiP** ([`ConfigFacts::doctrine`]) : sans effet sur le statut, les familles et la note
 ///   de date. Quand le serveur sert ses outils, FR-009, FR-102 et FR-104 prennent leur texte
 ///   reformulé ; sinon, tout est rendu comme avant le jalon MB.
-/// - **Service-Public** ([`ConfigFacts::guidance`]) : sa seule lacune, en dernier ; rien d'autre
-///   ne change.
+/// - **Service-Public** ([`ConfigFacts::guidance`]) : sa seule lacune, après celle du BOFiP ;
+///   rien d'autre ne change.
+/// - **Judilibre** ([`ConfigFacts::judilibre`]) : sa seule lacune, en dernier ; rien d'autre ne
+///   change. FR-005 garde ici le texte du catalogue : la vue la reformule
+///   ([`judilibre_fr005`]) à la surface qui sert les outils de Judilibre.
 #[must_use]
 pub fn coverage(env: PisteEnvironment, facts: &ConfigFacts, served: &[Fond]) -> Coverage {
     let healthy = facts.credentials_configured && !facts.has_problems && !facts.local_snapshot;
@@ -491,6 +555,11 @@ pub fn coverage(env: PisteEnvironment, facts: &ConfigFacts, served: &[Fond]) -> 
         GuidanceSource::Active => Some(&GUIDANCE_TODAY_ONLY_GAP),
         GuidanceSource::Off => Some(&GUIDANCE_OFF_GAP),
     };
+    let of_judilibre = match facts.judilibre {
+        JudilibreSource::NotServed => None,
+        JudilibreSource::Active => Some(&JUDILIBRE_BETA_GAP),
+        JudilibreSource::Off => Some(&JUDILIBRE_OFF_GAP),
+    };
     let known_gaps = STATIC_GAPS
         .iter()
         .chain(computed.into_iter().filter_map(|(active, gap)| active.then_some(gap)))
@@ -498,6 +567,7 @@ pub fn coverage(env: PisteEnvironment, facts: &ConfigFacts, served: &[Fond]) -> 
         .map(GapText::to_gap)
         .chain(of_doctrine.map(doctrine_gap))
         .chain(of_guidance.map(guidance_gap))
+        .chain(of_judilibre.map(judilibre_gap))
         .collect();
 
     let as_of_note = if facts.local_snapshot { SNAPSHOT_AS_OF_NOTE } else { AS_OF_NOTE };
@@ -583,6 +653,7 @@ mod tests {
         local_snapshot: false,
         doctrine: DoctrineSource::NotServed,
         guidance: GuidanceSource::NotServed,
+        judilibre: JudilibreSource::NotServed,
     };
 
     /// Les seize combinaisons de faits de configuration, sans outil du BOFiP servi.
@@ -600,6 +671,7 @@ mod tests {
                             local_snapshot,
                             doctrine: DoctrineSource::NotServed,
                             guidance: GuidanceSource::NotServed,
+                            judilibre: JudilibreSource::NotServed,
                         })
                     })
                 })
@@ -868,6 +940,7 @@ mod tests {
             local_snapshot: true,
             doctrine: DoctrineSource::NotServed,
             guidance: GuidanceSource::NotServed,
+            judilibre: JudilibreSource::NotServed,
         };
         let c = coverage(PisteEnvironment::Sandbox, &everything, &Fond::ALL);
         assert_eq!(&ids(&c)[9..], ["FR-101", "FR-102", "FR-103", "FR-104", "FR-105"]);
@@ -1011,6 +1084,7 @@ mod tests {
             local_snapshot: true,
             doctrine,
             guidance: GuidanceSource::NotServed,
+            judilibre: JudilibreSource::NotServed,
         };
         let of = |doctrine| coverage(PisteEnvironment::Sandbox, &everything(doctrine), &Fond::ALL);
         let before = of(DoctrineSource::NotServed);
@@ -1172,5 +1246,110 @@ mod tests {
                 }
             }
         }
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // Judilibre (jalon MJ, 05 §5.8) : l'état de la source.
+    // ---------------------------------------------------------------------------------------
+
+    #[test]
+    fn the_judilibre_source_is_not_served_by_default() {
+        assert_eq!(JudilibreSource::default(), JudilibreSource::NotServed);
+        assert_eq!(JUDILIBRE_FAMILY, "JUDILIBRE");
+    }
+
+    #[test]
+    fn judilibre_gap_follows_the_source_state() {
+        let of = |judilibre| {
+            coverage(PisteEnvironment::Production, &ConfigFacts { judilibre, ..HEALTHY }, &Fond::ALL)
+        };
+        let not_served = of(JudilibreSource::NotServed);
+        assert_eq!(ids(&not_served).len(), 9);
+        let active = of(JudilibreSource::Active);
+        assert_eq!(
+            table(&active)[9],
+            (
+                "FR-110",
+                "JUDILIBRE",
+                "Judilibre is in beta and serves judicial courts only (no administrative courts); \
+                 what is published varies by court and period.",
+                "Check the court and date of each decision; for administrative case law, search \
+                 fond CETAT."
+            )
+        );
+        let off = of(JudilibreSource::Off);
+        assert_eq!(
+            table(&off)[9],
+            (
+                "FR-111",
+                "JUDILIBRE",
+                "The Judilibre source is turned off (LF_JUDILIBRE, or offline mode): \
+                 fr_search_judilibre and fr_get_judilibre fail with config_error.",
+                "The operator can set LF_JUDILIBRE=on; it needs PISTE credentials and an \
+                 application subscribed to the Judilibre API (free)."
+            )
+        );
+        // Après le BOFiP et Service-Public.
+        let all = coverage(
+            PisteEnvironment::Production,
+            &ConfigFacts {
+                doctrine: DoctrineSource::Active,
+                guidance: GuidanceSource::Active,
+                judilibre: JudilibreSource::Off,
+                ..HEALTHY
+            },
+            &Fond::ALL,
+        );
+        assert_eq!(&ids(&all)[9..], ["FR-106", "FR-108", "FR-111"]);
+        // FR-005 garde le texte du catalogue dans le domaine, quel que soit l'état.
+        for judilibre in [JudilibreSource::Active, JudilibreSource::Off] {
+            assert_eq!(table(&of(judilibre))[4], table(&not_served)[4]);
+        }
+    }
+
+    /// Judilibre ne change ni le statut, ni les familles, ni la note de date, ni aucune autre
+    /// lacune : il n'ajoute que la sienne, en dernier.
+    #[test]
+    fn judilibre_gaps_never_change_status() {
+        for env in [PisteEnvironment::Sandbox, PisteEnvironment::Production] {
+            for facts in all_facts() {
+                for (doctrine, guidance) in DOCTRINE_STATES
+                    .into_iter()
+                    .flat_map(|doctrine| GUIDANCE_STATES.map(|guidance| (doctrine, guidance)))
+                {
+                    let facts = ConfigFacts { doctrine, guidance, ..facts };
+                    let before = coverage(env, &facts, &Fond::ALL);
+                    for (judilibre, id) in
+                        [(JudilibreSource::Active, "FR-110"), (JudilibreSource::Off, "FR-111")]
+                    {
+                        let with = coverage(env, &ConfigFacts { judilibre, ..facts }, &Fond::ALL);
+                        assert_eq!(with.status(), before.status(), "{env:?} {facts:?}");
+                        assert_eq!(with.families(), before.families());
+                        assert_eq!(with.as_of_note(), before.as_of_note());
+                        let mut wanted = table(&before);
+                        let last = table(&with).last().copied().unwrap();
+                        assert_eq!((last.0, last.1), (id, JUDILIBRE_FAMILY));
+                        wanted.push(last);
+                        assert_eq!(table(&with), wanted);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn fr005_is_reworded_for_the_judilibre_surface() {
+        let gap = judilibre_fr005();
+        assert_eq!(
+            (gap.id.as_str(), gap.family.as_str(), gap.missing.as_str(), gap.fallback.as_str()),
+            (
+                "FR-005",
+                "JURI",
+                "Only a selection of courts of appeal and almost no first-instance decisions are \
+                 on Légifrance (JURI).",
+                "Search them with fr_search_judilibre (Judilibre, open data of the Cour de \
+                 cassation)."
+            )
+        );
     }
 }
