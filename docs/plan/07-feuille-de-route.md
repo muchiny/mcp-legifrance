@@ -74,8 +74,9 @@ Les questions Q1 à Q15 de 00 §13 portent chacune une proposition adoptée par 
 | Distribution (transverse) | binaires, signature, MCPB, OCI, registre MCP, `cargo install --git` | dès v0.1.0 | A, W, M, K, R, G | Q1 (avant publication immuable), Q5, Q13 | **V-173** (si certificat, Q5), **V-197**, **V-204** | 15 |
 | MB BOFiP | doctrine fiscale : port `TaxDoctrine`, `lf-adapter-bofip`, `fr_search_bofip`, `fr_get_bofip` (ADR-0028, ADR-0029) ; texte lu dans le champ HTML (ADR-0030) ; recherche en mots exacts (ADR-0031) ; articles cités par une publication lue (ADR-0032) | 1.3.0, puis 1.3.1, puis 1.3.2, puis 1.4.0 | G (portail ouvert, sans compte) ; P pour le rejeu de T-MB-44 | Q28 à Q37 décidées | **V-222** et **V-225** (levées), **V-223** et **V-228** (levées avec réserve) | 45 |
 | MS Service-Public | fiches pratiques de Service-Public.gouv.fr (DILA) : port `PublicGuidance`, `lf-adapter-service-public`, `fr_search_service_public`, `fr_get_service_public` (ADR-0033) | 1.5.0 | G (serveur ouvert de la DILA, sans compte) ; P pour un rejeu éventuel (T-MS-44) | Q38 à Q40 décidées (Q38 révisée le 2026-11-24) | **V-229**, **V-230**, **V-232** | 32 |
+| MJ Judilibre | jurisprudence judiciaire en open data de la Cour de cassation : port `JudicialOpenData`, `PisteJudilibre` dans `lf-adapter-piste`, `fr_search_judilibre`, `fr_get_judilibre` (ADR-0035) | 1.6.0 (proposée) | P (application PISTE du propriétaire abonnée à Judilibre, faite le 2026-11-27 en production ; production seulement avec son accord, AM-88) | Q42 à Q45 décidées (A, 2026-11-27) | **V-241**, **V-242** | 25 |
 
-Versions : SemVer de la surface d'outils de 05 §9.5 (avant 1.0, une rupture ou un ajout fait passer de `0.x` à `0.(x+1).0`). M8 étant optionnel, M9 peut suivre directement v0.3.0. Hors de cette feuille de route : Judilibre (après v0.3.0, V-181 à V-183), fonds JUFI (après v1.0, V-184), canaux supplémentaires (MSI, Homebrew, winget… après v0.1.0, 09 §3.16.3).
+Versions : SemVer de la surface d'outils de 05 §9.5 (avant 1.0, une rupture ou un ajout fait passer de `0.x` à `0.(x+1).0`). M8 étant optionnel, M9 peut suivre directement v0.3.0. Hors de cette feuille de route : fonds JUFI (après v1.0, V-184), canaux supplémentaires (MSI, Homebrew, winget… après v0.1.0, 09 §3.16.3).
 
 ### 1.2 Dépendances entre jalons
 
@@ -1389,6 +1390,197 @@ Moins de 300 requêtes vers le serveur de la DILA pour tout le jalon, une par se
 
 ---
 
+### 2.13 MJ — Judilibre (jurisprudence judiciaire)
+
+**Objectif.** Rendre lisibles les décisions de l'ordre judiciaire publiées en open data par la Cour de cassation : Cour de cassation, cours d'appel, tribunaux judiciaires, tribunaux de commerce et conseils de prud'hommes.
+- **Outils** : `fr_search_judilibre` et `fr_get_judilibre`, derrière un port distinct (`JudicialOpenData`).
+- **Code** : dans `lf-adapter-piste`, avec le même jeton, le même client et le même limiteur que Légifrance (Q43 = A).
+- **Mentions** : celles des CGU, pour chaque décision.
+- **Profilage** : aucun moyen d'étudier un juge.
+- **Inchangés** : la vérification des citations (Q45 = A, plus tard), les treize outils de Légifrance, le BOFiP et Service-Public.
+
+**Prérequis.**
+- ADR-0035 accepté (T-MJ-01).
+- Q42 à Q45 décidées (A pour chacune, le 2026-11-27).
+- Application PISTE de production du propriétaire abonnée à Judilibre : fait le 2026-11-27. Le bac à sable n'est pas abonné, et ses clés ne sont plus sur la machine.
+- **Appels en production** (P) : seulement avec l'accord du propriétaire, donné au moment de l'appel (AM-88), à 1 req/s au plus, avec arrêt au premier 429. La CI n'appelle jamais la production.
+
+**Garanties de non-régression.** Chacune a sa preuve. Une garantie rompue arrête le travail.
+
+- **G0** : `make ci` vert sur `main` avant de commencer (T-MJ-04).
+- **G1** : les 17 descripteurs existants ne changent pas (même `sha256` dans `tests/tools.lock.json` avant et après).
+- **G1 bis** : les réponses de 16 outils ne changent pas (parité et snapshots). Celle de `fr_coverage` ne change qu'à la surface v0.3, et seulement par la famille `JUDILIBRE`, le texte de FR-005, FR-110 et FR-111. Ses réponses v0.1 et v0.2 restent identiques à l'octet (05 §5.8).
+- **G2** :
+  - les requêtes vers Légifrance sont identiques (corps, chemins, en-têtes) : snapshots et tests de `lf-adapter-piste` inchangés, sauf ceux du partage du client, réécrits à comportement égal (T-MJ-20) ;
+  - aucun fichier de `lf-adapter-dila`, `lf-adapter-cache`, `lf-adapter-bofip` ni `lf-adapter-service-public` n'est modifié.
+- **G3** : les instructions v0.1 et v0.2 sont identiques à l'octet ; la v0.3 gagne une ligne 7 et reste sous 4 000 caractères (05 §4.2).
+- **G4 et G5** : en mode hors ligne, avec `LF_JUDILIBRE=off`, avec une valeur invalide, ou sans identifiants, aucune requête n'est faite. Preuve : le proxy témoin, avec un contraste (source active : une connexion vers l'hôte de l'API PISTE).
+- **G6 et G7** : une ligne d'audit par appel des dix-neuf outils ; format du journal inchangé.
+- **G8** : `make ci` vert à la fin de chaque vague ; couverture 100 % ; 0 mutant survivant sur les fichiers nouveaux ou touchés.
+- **G9** : la sortie de `check-config` ne change pas tant que `LF_JUDILIBRE` n'est pas définie et que la source n'est pas coupée d'office.
+- **G10** : la requête amont n'emploie que les deux chemins et la liste fermée de paramètres (ADR-0035, décision 3), et `jurisdiction` y est toujours. Jamais `/stats`, `/export`, `/scan`, `/transactionalhistory`, `/taxonomy` ni `/healthcheck`. Preuve : test sur l'adresse de chaque requête reçue par le faux serveur.
+- **G11** : aucun paquet externe ni crate nouveau : `Cargo.lock` et `fuzz/Cargo.lock` ne changent pas.
+- **G12** : les requêtes des deux API passent par un seul limiteur et un seul sémaphore (test d'appels mêlés).
+
+**Tâches.** Cinq vagues sur une seule branche (`feat/judilibre`), avec une PR de documentation (T-MJ-01), puis une PR de code unique (T-MJ-45).
+
+Vague 0 — décision, fixtures, mesures.
+
+- [ ] T-MJ-01 — **PR de documentation.**
+  - Contenu :
+    - ADR-0035 et AM-103 ;
+    - textes de 00 §0, §1, §2, §3, §6, §7, §8 et §11 ;
+    - 05 : §4.2, §5.8, §5.18 et §5.19 ;
+    - cette section ;
+    - 09 : §2.14, §2.18, §2.19, §2.20 et §2.24 ;
+    - annexe C §6.
+
+  Où : `docs/` · Livrable : PR fusionnée · Vérification : relecture du propriétaire · Spéc. : ADR-0035 · Taille : S
+- [ ] T-MJ-02 — **Fixtures.** Une douzaine de réponses réelles tirées des relevés du 2026-11-27, réduites à ce que les tests lisent :
+  - une recherche `cc`, `ca` et `tj`, une recherche limitée aux motifs, la page vide malgré un `total` positif, le corps du `416` ;
+  - une décision de chacun des trois types : `cc` zonée, `ca` zonée, `ca` sans zones à la date mal formée.
+
+  Les noms des magistrats et des greffiers sont remplacés : ce sont des données de test, jamais servies. Aucun jeton n'apparaît. Un `README` donne l'origine et la réduction.
+  Où : `crates/lf-adapter-piste/tests/fixtures/judilibre/` · Livrable : fixtures et `README` · Vérification : contrôle d'intégrité des fixtures (aucun secret, aucune adresse hors liste) · Spéc. : ADR-0035 « Tests qui la gardent » · Taille : S
+- [ ] T-MJ-03 — **Intitulés et juridictions (V-241).** Quatre requêtes au plus, avec l'accord du propriétaire, à 1 req/s, par un script qu'il lance lui-même :
+  - une recherche sur `tcom` ;
+  - une recherche sur `cph` ;
+  - une même lecture, avec et sans `resolve_references=true`.
+
+  Le résultat décide de l'emploi du paramètre et de la table de repli. Le propriétaire lit les quotas dans la console (V-236).
+  Où : hors dépôt, puis 09 §2.20 · Livrable : décision consignée · Vérification : intitulé du siège présent, ou table de repli retenue · Spéc. : ADR-0035 décisions 3 et 6 · Taille : S · Prérequis : P
+- [ ] T-MJ-04 — **G0.** `make ci` sur `main`, mémoire et disque contrôlés avant tout travail lourd.\
+  Où : dépôt · Livrable : journal de `make ci` · Vérification : code de sortie 0 · Spéc. : 00 §10 · Taille : S
+
+Vague 1 — domaine et application, sans réseau, surface inchangée.
+
+- [ ] T-MJ-10 — **Types d'entrée.**
+  - `JudilibreId` : 24 caractères hexadécimaux, mis en minuscules ;
+  - `Court` : `cc`, `ca`, `tj`, `tcom`, `cph` ;
+  - `CourtSet` : non vide, sans double, les cinq par défaut ;
+  - `SearchPart`, `DecisionPart` ;
+  - `CaseLawQuery` : requête, `match`, dates, tri, page, avec la borne des 10 000 résultats.
+
+  Où : `crates/lf-domain/src/judilibre/` · Livrable : types et tests de propriété · Vérification : `judilibre_id_is_24_hex`, `empty_court_set_is_impossible`, `page_window_over_10000_refused` ; mutation des fichiers · Spéc. : ADR-0035 décisions 4, 5 et 11 · Taille : S
+- [ ] T-MJ-11 — **Décision et rendu.**
+  - Découpage par `zones` : indices UTF-16 bornés et ramenés à une limite de caractère, fragments par début croissant, zones absentes.
+  - Retrait des balises HTML de `visa`, des rapprochements et des extraits.
+  - Mentions, intitulés de repli (`cc` et les 36 cours d'appel), citation, adresse publique à grammaire stricte (V-239).
+  - Résumé : `official`, `dispositif` ou `lead`.
+
+  Où : `crates/lf-domain/src/judilibre/` · Livrable : fonctions pures · Vérification : `zone_end_past_text_is_clamped`, `zone_offsets_are_utf16`, `missing_zones_fall_back_to_full_text`, `tags_are_stripped_text_kept`, propriété sur textes arbitraires · Spéc. : ADR-0035 décisions 5, 6 et 11 · Taille : M · Après : T-MJ-10
+- [ ] T-MJ-12 — **Port.** `JudicialOpenData`, `NoCaseLaw` et le faux port de la suite de contrat ; `LegalService` gagne un paramètre générique muni d'un défaut.\
+  Où : `crates/lf-application/src/ports/` · Livrable : port et faux · Vérification : les cas d'usage existants compilent sans changement d'appel · Spéc. : ADR-0035 décision 1 · Taille : S · Après : T-MJ-10
+- [ ] T-MJ-13 — **Cas d'usage.**
+  - Validation complète avant le réseau.
+  - Note de page vide malgré un `total` positif.
+  - `to_be_deleted` rendu `not_found`.
+  - Lecture progressive, entière ou par partie.
+  - Mentions et note fixe à chaque réponse.
+
+  Où : `crates/lf-application/src/` · Livrable : cas d'usage · Vérification : `invalid_args_never_reach_the_port`, `empty_page_with_positive_total_has_a_note`, `deleted_decision_is_not_found` · Spéc. : ADR-0035 décisions 4 à 7 · Taille : M · Après : T-MJ-11, T-MJ-12
+- [ ] T-MJ-14 — **Couverture, domaine.** Famille `JUDILIBRE`, texte de FR-005 propre à la v0.3, lacunes FR-110 et FR-111 selon l'état de la source.\
+  Où : `crates/lf-domain/src/coverage/` · Livrable : lacunes · Vérification : `judilibre_gap_follows_the_source_state`, `judilibre_gaps_never_change_status` · Spéc. : 05 §5.8 · Taille : S
+
+Vague 2 — adapter.
+
+- [ ] T-MJ-20 — **Partage.** Le jeton, le client, le limiteur, le sémaphore et les réessais passent dans une pièce commune à `PisteCorpus` et `PisteJudilibre`, à comportement égal pour Légifrance (G2).\
+  Où : `crates/lf-adapter-piste/src/` · Livrable : refonte sans changement visible · Vérification : tests et snapshots de l'adapter inchangés ; `mixed_calls_share_one_limiter` (G12) · Spéc. : ADR-0035 décision 2 · Taille : M · Après : T-MJ-04
+- [ ] T-MJ-21 — **Requêtes et DTO.**
+  - `GET /search` et `/decision`, paramètres de la liste fermée, `jurisdiction` toujours présent, `page` moins 1.
+  - DTO serde minimaux, champs inconnus ignorés, date gardée telle que publiée.
+  - Correspondance vers le domaine.
+
+  Où : `crates/lf-adapter-piste/src/` · Livrable : `PisteJudilibre` · Vérification : G10 par le faux serveur ; fixtures de T-MJ-02 lues · Spéc. : ADR-0035 décision 3 · Taille : M · Après : T-MJ-20, T-MJ-02, T-MJ-13
+- [ ] T-MJ-22 — **Erreurs.**
+  - 403 : `config_error` retenu 10 minutes, sans requête pendant ce temps (horloge injectée).
+  - 404 : `not_found`.
+  - 400, 416 et 423 : sans nouvelle tentative.
+  - 429 et 5xx : règles en place.
+  - Aucun mot de la recherche dans un message.
+
+  Où : `crates/lf-adapter-piste/src/` · Livrable : classement des erreurs · Vérification : `forbidden_is_remembered_ten_minutes`, `blocked_423_is_not_retried`, `errors_never_echo_the_query` · Spéc. : ADR-0035 décision 9 · Taille : S · Après : T-MJ-21
+- [ ] T-MJ-23 — **Test en direct.**
+  - Une recherche et une lecture, en dehors de la CI, lancées par le propriétaire en production.
+  - Éventuellement dans `live.yml`, en bac à sable, si le propriétaire abonne aussi son application de bac à sable.
+
+  Où : `crates/lf-adapter-piste/tests/` · Livrable : test ignoré par défaut · Vérification : passage manuel vert · Spéc. : ADR-0035 · Taille : S · Prérequis : P · Après : T-MJ-22
+
+Vague 3 — surface MCP et composition.
+
+- [ ] T-MJ-30 — **Descriptions, schémas et mentions (V-242).** Textes des deux outils (05 §5.18, §5.19), `attribution`, `case_law_note`, CGU relues une dernière fois.\
+  Où : `crates/lf-adapter-mcp/src/` · Livrable : descripteurs · Vérification : chaque mention exigée par les CGU V8 est présente dans une réponse de chaque outil · Spéc. : ADR-0035 décisions 6 et 7 · Taille : S · Après : T-MJ-13
+- [ ] T-MJ-31 — **Vues.** `CaseLawSearchView`, `CaseLawView`, plafond du §6.4, famille et lacunes de `fr_coverage` à la v0.3 seulement (G1 bis).\
+  Où : `crates/lf-adapter-mcp/src/views/` · Livrable : vues · Vérification : `judilibre_family_is_always_rendered_at_v03`, `judilibre_gaps_and_fr005_only_at_v03`, snapshot `coverage_v01_sandbox` inchangé · Spéc. : 05 §5.8 · Taille : M · Après : T-MJ-30, T-MJ-14
+- [ ] T-MJ-32 — **Instructions.** Ligne 7, lignes 5 et 6 resserrées, au plus 4 000 caractères ; v0.1 et v0.2 identiques à l'octet (G3). Si cela ne tient pas : arrêt et décision du propriétaire.\
+  Où : `crates/lf-adapter-mcp/src/text.rs` · Livrable : texte · Vérification : `instructions_fit_budget`, `instructions_cite_exactly_the_tools_of_their_surface` (19 outils), `cargo xtask instructions-size` · Spéc. : 05 §4.2 · Taille : S · Après : T-MJ-30
+- [ ] T-MJ-33 — **Composition.**
+  - `AnyCaseLaw` et `LF_JUDILIBRE` (avis `InvalidJudilibre`, coupure d'office en mode hors ligne) ;
+  - `check-config` (G9) ;
+  - réglage MCPB `judilibre`.
+
+  Où : `crates/lf-app/src/`, `packaging/mcpb/manifest.json` · Livrable : assemblage · Vérification : `invalid_judilibre_value_turns_the_source_off`, G9 · Spéc. : 00 §1 · Taille : M · Après : T-MJ-31, T-MJ-22
+- [ ] T-MJ-34 — **Tests du binaire.** G4, G5 et G6 par le proxy témoin (`LF_TOOL_DEADLINE_S=1`) ; `check-config` ; aucune connexion sans identifiants.\
+  Où : `crates/lf-app/tests/` · Livrable : tests · Vérification : contraste d'une connexion · Spéc. : ADR-0035 « Tests qui la gardent » · Taille : S · Après : T-MJ-33
+- [ ] T-MJ-35 — **Verrou.** `cargo xtask lock-descriptors --update`, diff relu (G1), `make lock`, `make instructions`.\
+  Où : `tests/tools.lock.json`, `packaging/` · Livrable : verrou à dix-neuf outils · Vérification : 17 `sha256` inchangés, 2 nouveaux · Spéc. : 05 §9 · Taille : S · Après : T-MJ-32, T-MJ-33
+
+Vague 4 — documentation, revues, clôture.
+
+- [ ] T-MJ-40 — **Documentation utilisateur.**
+  - README : variable, abonnement à Judilibre pas à pas, mentions, mode hors ligne.
+  - `PRIVACY.md` : les mots d'une recherche partent vers PISTE et la Cour de cassation, comme pour Légifrance.
+  - `SECURITY.md`.
+  - 05 : état livré des §4.2, §5.18 et §5.19.
+  - Rubrique « Tool surface » du CHANGELOG.
+
+  Où : racine, `docs/plan/` · Livrable : documents · Vérification : contrôle des variables du README (CONTRIBUTING) · Spéc. : ADR-0035 décisions 6, 7 et 10 · Taille : S · Après : T-MJ-35
+- [ ] T-MJ-41 — **Revues.** Revue de code et audit de sécurité (requêtes, jeton partagé, lecture des réponses, découpage, profilage), une vague de corrections, une re-revue.\
+  Où : branche · Livrable : constats traités · Vérification : aucun constat bloquant ni élevé ouvert · Spéc. : 06 §13 · Taille : S · Après : T-MJ-40
+- [ ] T-MJ-42 — **Mutation.** `make mutants FILE=…`, un fichier à la fois ; fichiers nouveaux dans `.github/mutants-scope.txt`.\
+  Où : branche · Livrable : 0 mutant survivant · Vérification : journaux gardés · Spéc. : 00 §10 · Taille : S · Après : T-MJ-41
+- [ ] T-MJ-43 — **`make ci` final.** Sortie gardée comme preuve.\
+  Où : branche · Livrable : journal · Vérification : code de sortie 0 · Spéc. : 00 §10 · Taille : S · Après : T-MJ-42
+- [ ] T-MJ-44 — **Mesure d'apport (V-240).**
+  - Q09 à Q11 du 2026-11-02, avec le binaire de la branche, en production.
+  - Protocole et critère écrits avant les résultats, comme T-MS-03.
+  - Coût présenté avant de lancer.
+  - Avec l'accord du propriétaire (AM-88).
+
+  Où : hors dépôt, puis 09 §2.20 · Livrable : mesure · Vérification : critère fixé d'avance · Spéc. : ADR-0035 « À surveiller » · Taille : S · Prérequis : P · Après : T-MJ-43
+- [ ] T-MJ-45 — **PR de code unique**, puis PR de version (1.6.0 proposée) après sa fusion. L'étiquette est posée par le propriétaire.\
+  Où : GitHub · Livrable : PR · Vérification : CI verte · Spéc. : 06 §13 · Taille : S · Après : T-MJ-43
+
+**Critères d'acceptation.**
+
+- [ ] Les deux outils répondent sur les fixtures et en production (T-MJ-23, passage manuel).
+- [ ] G0 à G12 tenues, chacune avec sa preuve.
+- [ ] V-241 et V-242 levées ; V-236, V-239 et V-240 consignées (09 §2.24).
+- [ ] `make ci` vert, couverture 100 %, 0 mutant survivant ; audit de sécurité fait (T-MJ-41).
+- [ ] README, `PRIVACY.md` et `SECURITY.md` à jour ; rubrique « Tool surface » du CHANGELOG.
+
+**Vérifications rattachées.**
+
+| Tâche | Vérifications |
+|---|---|
+| T-MJ-03 | **V-241**, V-236 |
+| T-MJ-11 | V-239 |
+| T-MJ-30 | **V-242** |
+| T-MJ-44 | V-240 |
+
+**Règles d'exécution.** Un seul `cargo` à la fois sur la machine WSL ; mutation par `make mutants FILE=…` seulement.
+
+Arrêt immédiat et compte rendu au propriétaire dans ces cas :
+- premier refus 429, ou un 423, de PISTE hors du harnais ;
+- `sha256` d'un des 17 descripteurs qui change ;
+- requête vers Légifrance qui change ;
+- besoin d'un paquet nouveau ;
+- instructions au-delà de 4 000 caractères.
+
+Hors de V-240, moins de 50 requêtes vers Judilibre pour tout le jalon, toutes en production avec l'accord du propriétaire, à 1 req/s.
+
+---
+
 ## 3. Ordre conseillé et parallélisation
 
 ### 3.1 Vagues
@@ -1483,6 +1675,7 @@ La PR de clôture (« close: Mx ») contient :
 | Distribution | **configurée, jamais exercée en release** (dist, MCPB, OCI, `server.json`, portes de release présents ; état en CI non relevé dans ce lot) ; signature non faite (Q5) | 3 / 16 (T-MD-01, -03, -04 ; T-MD-16 ajoutée par la revue de sécurité F4) | compris dans la recette v0.1.0 : V-197, V-204 non levées | #27 | — |
 | MB (BOFiP) | articles cités : ADR-0032 et plan fusionnés le 2026-11-16 (PR #94), code fusionné le 2026-11-17 (PR #95, T-MB-67 à T-MB-73), PR de version 1.4.0 ensuite, étiquette à poser par le propriétaire ; recherche en mots exacts : ADR-0031 et plan fusionnés le 2026-11-16 (PR #90), code fusionné le même jour (PR #91, T-MB-59 à T-MB-66), 1.3.2 publiée le 2026-11-16 ; avant : code écrit sur `feat/bofip` le 2026-11-15 (vagues 0 à 4) ; rejeu des 13 questions fait (T-MB-44 : 30,9 puis 31,2 / 40) ; PR de code #85 fusionnée le 2026-11-15 (T-MB-45) ; PR de version 1.3.0 #86 fusionnée le même jour ; 1.3.0 publiée le 2026-11-15 (étiquette posée par le propriétaire) ; suite : texte lu dans le champ HTML (ADR-0030 et plan : PR #87 fusionnée le 2026-11-15 ; T-MB-51 à T-MB-57 : code écrit le 2026-11-15 sur `fix/bofip-html`, PR #88) ; PR de version 1.3.1 #89 fusionnée le 2026-11-15, 1.3.1 publiée le 2026-11-16 | 0 / 45 (cases à cocher par le propriétaire) | 3 / 3 : V-222 et V-225 levées, V-223 levée avec réserve | — | — |
 | MS (Service-Public) | livré : ADR-0033 et plan fusionnés le 2026-11-24 (PR #103), code fusionné le 2026-11-25 (PR #105, T-MS-02 à T-MS-46), PR de version 1.5.0 ensuite, étiquette à poser par le propriétaire ; Q38 à Q40 = A le 2026-11-23, Q38 = B le 2026-11-24 après la mesure de T-MS-03 (13 sur 20), Q41 le 2026-11-24 | 31 / 32 (T-MS-44, facultative, non faite) | V-229 confirmée (18 sur 20) ; V-230 et V-232 consignées avec leurs réserves | #105 | 2026-11-25 |
+| MJ (Judilibre) | en cours : ADR-0035 et plan proposés le 2026-11-27 (PR de documents, T-MJ-01) ; Q42 à Q45 = A le 2026-11-27 ; sondes en production faites le même jour par le propriétaire | 0 / 25 | 0 / 2 : V-241 et V-242 ouvertes | — | — |
 
 Statuts : `à faire`, `en cours`, `bloqué (prérequis)` avec le prérequis manquant, `terminé`. « Terminé » pour M0 et M1 vaut au sens du livré (plan 1) ; la colonne « Tâches cochées » y décompte les statuts des tâches (§2.0, §2.1) et les reliquats sont suivis par 00 §11.1. Les onze vérifications bloquantes de la recette v0.1.0 sont V-46, V-59, V-103, V-139, V-140, V-142, V-143, V-144, V-173 (si certificat), V-197 et V-204 (09 §2.18).
 
@@ -1523,8 +1716,10 @@ Statuts : `à faire`, `en cours`, `bloqué (prérequis)` avec le prérequis manq
 | M8 | V-62, V-175, V-176 (profil partagé) | T-M8-01, T-M8-06 |
 | M9 | V-180 | T-M9-04 |
 | M9 | V-185, V-186, V-187 | T-M9-01 |
+| MJ | V-241 | T-MJ-03 |
+| MJ | V-242 | T-MJ-30 |
 
-Vérifications à refaire en continu (09 §2.18) : V-38 (statut des bugs de rmcp, à chaque montée), V-46 (Claude Code, à chaque version), V-63 et V-64 (observation passive des journaux de `live.yml`), V-74 (Swagger, à chaque jalon). Après v0.3.0 : V-181 à V-183 (Judilibre) ; après v1.0 : V-184. Le risque R-27 (évolution de la spécification MCP) est revu après v0.3.0, R-12 et R-14 en continu.
+Vérifications à refaire en continu (09 §2.18) : V-38 (statut des bugs de rmcp, à chaque montée), V-46 (Claude Code, à chaque version), V-63 et V-64 (observation passive des journaux de `live.yml`), V-74 (Swagger, à chaque jalon). V-181 à V-183 (Judilibre) : levées le 2026-11-27 (jalon MJ, §2.13) ; après v1.0 : V-184. Le risque R-27 (évolution de la spécification MCP) est revu après v0.3.0, R-12 et R-14 en continu.
 
 ### 4.5 Faire évoluer ce document
 

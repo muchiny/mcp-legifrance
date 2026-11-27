@@ -522,6 +522,14 @@ Comptage : `len()` Python sur le texte exact, sans saut de ligne final, refait l
 - ligne livrée, 248 caractères (sans adresse ; « Legifrance » sans accent, comme ailleurs dans ce texte ; macro `public_guidance!` de `text.rs`) : `` 6. Public guidance: `fr_search_service_public` then `fr_get_service_public` read the Service-Public practical sheets (DILA): plain-language administrative guidance, not the law; a sheet lists in `legal_references` the Legifrance texts it relies on. `` ;
 - la variante v0.3 mesure **3 937 caractères** (3 945 octets) sur le binaire, soit 63 de marge sous 4 000 ; les variantes v0.1 (3 100) et v0.2 (3 301) n'ont pas bougé ; le verrou porte `instructions_chars` 3 937 (ADR-0033, décision 14).
 
+**Outils Judilibre (ADR-0035, AM-103 ; non livré, jalon MJ).** Avec 63 caractères de marge, une ligne 7 qui cite `fr_search_judilibre` et `fr_get_judilibre` ne tient pas telle quelle. Proposé, texte figé à T-MJ-32 :
+
+- le plafond **reste à 4 000** caractères ;
+- les lignes 5 et 6, propres à la v0.3, sont resserrées sans changer de sens. Par exemple, la ligne 5 passe de 185 à 136 caractères : `` 5. Tax doctrine: `fr_search_bofip` then `fr_get_bofip` read BOFiP, the tax administration's reading of tax law in force today, not the law. `` La ligne 6 passe de 245 à 181 caractères : `` 6. Public guidance: `fr_search_service_public` then `fr_get_service_public` read Service-Public sheets (DILA): plain-language guidance, not the law; `legal_references` lists its texts. `` ;
+- ligne 7 proposée, de 164 caractères : `` 7. Court rulings: `fr_search_judilibre` then `fr_get_judilibre` read Judilibre, the Cour de cassation open data, with appeal and lower courts; never to assess a judge. `` ;
+- total estimé à **3 992 caractères**, soit 8 de marge ; les variantes v0.1 (3 100) et v0.2 (3 301) ne bougent pas ;
+- si le texte ne tient pas sous 4 000 sans perdre de sens, le travail s'arrête et le propriétaire décide (ADR-0035, décision 13).
+
 Tests : `instructions_fit_budget`, `instructions_cite_exactly_the_tools_of_their_surface` (8, 10 puis 17 outils cités), `cargo xtask instructions-size`.
 
 ### 4.3 Règles de maintenance
@@ -1088,6 +1096,28 @@ Catalogue des lacunes (rédaction définitive demandée par 03 §4.8) :
 
 - **Tests** : domaine (T-MS-16) `service_public_gap_follows_the_source_state`, `service_public_gaps_never_change_status` ; vue (T-MS-32) `service_public_family_is_always_rendered_at_v03`, `service_public_gaps_only_at_v03` ; inchangés et verts : `the_v01_sandbox_response_stays_near_its_target` et le snapshot `coverage_v01_sandbox` ; `every_registered_tool_is_in_a_family_or_general` couvre dix-sept outils. Réécrits (T-MS-32) : dans `views/coverage.rs`, le nombre de familles, la dernière famille (`SERVICE_PUBLIC`, après `BOFIP`) et la dernière lacune, les listes de fonds et d'identifiants attendues ; `check_config_and_coverage_send_nothing` (`crates/lf-app/tests/cli.rs`). `gap_family` reconnaît `SERVICE_PUBLIC` comme `BOFIP`.
 
+**Judilibre (ADR-0035, AM-103 ; non livré, jalon MJ).** Avec les outils Judilibre (§5.18, §5.19), la réponse de `fr_coverage` change, mais pas son descripteur.
+
+- **Famille.** `families` gagne `{"fond": "JUDILIBRE", "label": …, "tools": ["fr_search_judilibre", "fr_get_judilibre"]}` à la surface v0.3, que la source soit active ou coupée. Elle vient après `SERVICE_PUBLIC`, par le même chemin à part. Libellé proposé : « Court decisions: Judilibre, open data of the Cour de cassation (Cour de cassation, courts of appeal, judicial and commercial courts, labour courts) ».
+- **FR-005**, à la surface v0.3 seulement :
+  - `missing` : « Only a selection of courts of appeal and almost no first-instance decisions are on Légifrance (JURI). » ;
+  - `fallback` : « Search them with fr_search_judilibre (Judilibre, open data of the Cour de cassation). ».
+
+  Les surfaces v0.1 et v0.2 gardent le texte actuel, à l'octet : la borne de 3 727 caractères de la v0.1 n'a que 16 de marge.
+- **Lacunes calculées nouvelles**, à la surface v0.3 seulement, sans effet sur `status`. Les identifiants calculés vont alors de FR-101 à FR-111.
+
+| Id | Fond | `missing` | `fallback` | Présente |
+|---|---|---|---|---|
+| FR-110 | JUDILIBRE | Judilibre is in beta and serves judicial courts only (no administrative courts); what is published varies by court and period. | Check the court and date of each decision; for administrative case law, search fond CETAT. | si la source Judilibre est active |
+| FR-111 | JUDILIBRE | The Judilibre source is turned off (LF_JUDILIBRE, or offline mode): fr_search_judilibre and fr_get_judilibre fail with config_error. | The operator can set LF_JUDILIBRE=on; it needs PISTE credentials and an application subscribed to the Judilibre API (free). | si la source est coupée (`LF_JUDILIBRE=off`, valeur invalide, ou `LF_DILA_DIR` défini sans `LF_JUDILIBRE=on`) |
+
+- **Application non abonnée.** Un refus 403 n'est pas une lacune : `fr_coverage` n'appelle aucun port (`coverage_makes_no_port_call`). C'est le `config_error` de l'outil qui le dit.
+- **Tests proposés** :
+  - domaine : `judilibre_gap_follows_the_source_state`, `judilibre_gaps_never_change_status` ;
+  - vue : `judilibre_family_is_always_rendered_at_v03`, `judilibre_gaps_and_fr005_only_at_v03` ;
+  - inchangés : `the_v01_sandbox_response_stays_near_its_target` et le snapshot `coverage_v01_sandbox` ;
+  - `every_registered_tool_is_in_a_family_or_general` couvre dix-neuf outils.
+
 **Exemple** (v0.1, sandbox, identifiants présents ; 3 389 caractères contre 1 343 pour la référence, qui ne déclarait que 3 familles et 2 lacunes ; 3 358 avant l'ajout de `attribution` et `consulted_on` en révision 2) : voir l'objet complet dans le snapshot `coverage_v01_sandbox` (06) ; extrait :
 
 ```json
@@ -1532,6 +1562,109 @@ Read one Service-Public.gouv.fr practical sheet (F...) or folder (N...) by its i
 L'outil n'envoie aucune requête vers Légifrance : l'appelant lit les textes avec les outils en place.
 
 **Erreurs** : `invalid_arg` ; `not_found` `No Service-Public sheet or folder {id} for {audience}. Try audience {other}, or search with fr_search_service_public.` ; `config_error`, `rate_limited`, `upstream_error`, `audit_error` comme au §5.16.
+
+### 5.18 `fr_search_judilibre` (proposé au jalon MJ : ADR-0035 ; version 1.6.0)
+
+**Objectif.** Trouver des décisions de justice de l'ordre judiciaire dans la base open data de la Cour de cassation (Judilibre). La base couvre la Cour de cassation, les cours d'appel, les tribunaux judiciaires, les tribunaux de commerce et les conseils de prud'hommes, bien au-delà de la sélection publiée sur Légifrance (JURI).
+
+**Description** (proposée, figée à T-MJ-30) :
+- titre : `Search Judilibre court decisions` ;
+- texte sans adresse ;
+- « for example » plutôt que « e.g. » (AM-63).
+
+```text
+Search Judilibre, the open data of French judicial court decisions published by the Cour de cassation: the Cour de cassation itself, but also courts of appeal, judicial and commercial courts and labour courts, most of which are not on Légifrance. `courts` defaults to all of them; `part` limits the search to one part of the decision, for example the reasons (motivations), which is slower. Returns ids to read with fr_get_judilibre, with court, seat, chamber and date, never the full text. Decisions are pseudonymised; French law forbids using them to evaluate, compare or predict the practice of a judge or court clerk.
+```
+
+**Entrée** :
+
+| Nom | Type JSON | Requis | Défaut | Contraintes |
+|---|---|---|---|---|
+| `query` | string | oui | — | 1 à 450 caractères après `trim`, comme `fr_search` ; envoyée en `query` |
+| `match` | string, `enum ["any","all","exact"]` | non | `"all"` | `any` → `operator=or`, `all` → `operator=and`, `exact` → `operator=exact` |
+| `courts` | array of string, `enum ["cc","ca","tj","tcom","cph"]` | non | les cinq | 1 à 5 valeurs distinctes. La liste est toujours envoyée (`jurisdiction`) : vide, l'API ne cherche que la Cour de cassation |
+| `part` | string, `enum ["motivations","dispositif","expose","moyens","summary","visa"]` | non | — (texte entier) | envoyée en `field` ; 6,6 s mesurées pour `motivations`, contre 30 à 167 ms sans |
+| `date_from`, `date_to` | string, `format: "date"` | non | — | `AAAA-MM-JJ` ; `date_from` ≤ `date_to` ; envoyées en `date_start` et `date_end` |
+| `sort` | string, `enum ["relevance","date"]` | non | `"relevance"` | `relevance` → `sort=scorepub` ; `date` → `sort=date&order=desc` |
+| `page_size` | integer | non | 10 | 1 à 50 |
+| `page` | integer | non | 1 | ≥ 1 ; `page × page_size ≤ 10 000` (au-delà, l'API rend `416` : mesuré le 2026-11-27) ; envoyée moins 1 |
+
+Ordre de validation : `query`, `match`, `courts`, `part`, dates, `sort`, `page_size`, `page`. Tout refus a lieu avant le réseau.
+
+**Requête amont.** `GET {hôte API}/cassation/judilibre/v1.0/search`, avec ces seuls paramètres, plus `resolve_references=true` si V-241 le confirme. Jeton `Bearer` du gestionnaire PISTE ; limiteur et sémaphore partagés avec Légifrance (00 §8).
+
+**Sortie** (`CaseLawSearchView`) :
+- `total`, `page`, `hits` ;
+- `has_more` : faux quand `page × page_size` atteint `min(total, 10 000)` ;
+- chaque décision :
+  - `id`, `court` (intitulé de la juridiction et de son siège), `chamber?`, `formation?` (Cour de cassation), `date` (telle que publiée) ;
+  - `number?`, `ecli?`, `solution?`, `publication?` ;
+  - `summary?` (Cour de cassation) ou `excerpt?` (premier extrait surligné, balises retirées, 300 caractères au plus) ;
+  - `themes?` (trois au plus), `citation`, `source_url?` ;
+- `attribution`, `consulted_on` ;
+- `case_law_note` : constante (décisions pseudonymisées, telles que publiées ; profilage interdit) ;
+- `note?` : page vide malgré un `total` positif ; ou aucun résultat, avec une invitation à essayer `match: any`, moins de mots ou d'autres juridictions.
+
+Plafond du §6.4, comme au §5.14.
+
+**Erreurs** :
+- `invalid_arg` ;
+- `config_error` :
+  - source coupée ;
+  - identifiants absents ;
+  - refus 403, avec le message `Your PISTE application is not subscribed to the Judilibre API (free): accept its terms on piste.gouv.fr and tick it in your application.`, retenu 10 minutes ;
+- `rate_limited` ;
+- `upstream_error` : 400, 416, 423, 5xx après réessais, corps illisible ;
+- `audit_error`.
+
+Aucune erreur ne porte un mot de la recherche.
+
+### 5.19 `fr_get_judilibre` (proposé au jalon MJ : ADR-0035 ; version 1.6.0)
+
+**Objectif.** Lire une décision de Judilibre par son identifiant, entière ou par partie, avec le retour progressif des lectures longues (§5.0.2, §5.0.3), ses mentions obligatoires et ses liens.
+
+**Description** (proposée, figée à T-MJ-30 ; titre `Read a Judilibre decision`) :
+
+```text
+Read one decision from Judilibre (Cour de cassation open data) by its id from fr_search_judilibre. Returns the court, seat, chamber or formation and date, which must be cited with the decision, then its text as published, progressively like fr_get_text; `part` reads only one part, for example motivations (the reasons) or dispositif (the ruling). Also lists the texts applied (visa, to check with fr_resolve), related decisions with their ids, and the decision under appeal. Decisions are pseudonymised: never try to re-identify a party, and never use them to evaluate, compare or predict the practice of a judge or court clerk.
+```
+
+**Entrée** :
+- `id` : string, requis ; 24 caractères hexadécimaux, mis en minuscules ASCII avant le contrôle ;
+- `part?` : `introduction`, `expose`, `moyens`, `motivations`, `dispositif` ou `annexes` ;
+- les paramètres communs (§5.0.2).
+
+Ordre de validation : `id`, `part`, paramètres communs. Tout refus a lieu avant le réseau.
+
+**Requête amont.** `GET {hôte API}/cassation/judilibre/v1.0/decision?id={id}`, plus `resolve_references=true` si V-241 le confirme.
+
+**Comportement.**
+
+| Cas | Réponse |
+|---|---|
+| Décision lue | `summary` : le sommaire de la Cour de cassation s'il existe (`summary_source` `official`), sinon le début du dispositif (`dispositif`), sinon le début du texte (`lead`) ; `text` ou `passages` selon §5.0.3 |
+| `part` demandée et présente | lecture limitée à la partie : fragments pris par début croissant, joints par une ligne vide ; `text_length` est celle de la partie |
+| `part` demandée, mais zones ou partie absentes | texte entier, avec une `note` (partie non délimitée dans cette décision) |
+| Indices de zone hors du texte ou au milieu d'un caractère | bornés au texte et ramenés à la limite de caractère précédente (le dernier `end` dépasse la longueur de 1 dans les décisions lues le 2026-11-27) |
+| `to_be_deleted` vrai, ou 404 | `not_found` |
+| `partial` vrai | `note` : décision publiée en partie |
+
+**Sortie** (`CaseLawView`) :
+- identification et mentions : `id`, `court`, `chamber?`, `formation?`, `date` ;
+- métadonnées : `number?`, `ecli?`, `solution?`, `publication?`, `themes?`, `citation`, `source_url?`, `updated` (`update_date`) ;
+- liens :
+  - `visa?` : `[{title}]`, balises retirées ;
+  - `related?` : `[{title, id?, legifrance_id?}]` ;
+  - `contested?` : `{court, chamber?, date?, solution?}` ;
+- `attribution`, `case_law_note` ;
+- les champs de lecture (§5.0.3).
+
+Aucun nom de personne n'est jamais rendu dans un champ à part. Les noms des magistrats et des greffiers restent dans le texte, tel que publié.
+
+**Erreurs** :
+- `invalid_arg` ;
+- `not_found` : `No Judilibre decision {id}. Search with fr_search_judilibre.` ;
+- `config_error`, `rate_limited`, `upstream_error`, `audit_error` : comme au §5.18.
 
 ---
 
