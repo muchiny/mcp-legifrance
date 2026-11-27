@@ -194,10 +194,10 @@ pub(crate) fn peer(mode: &str) -> Launch {
 /// Faux pair : le binaire de test relancé sur ce seul test, avec `LOCK_PEER=<mode>` en filtre
 /// supplémentaire. Lancé sans ce filtre (cas ordinaire), le test ne fait rien.
 ///
-/// Modes : `server` (sert les sessions), `noisy` (une ligne parasite d'abord), `silent` (lit sans
-/// jamais répondre), `sleep=<ms>` (sert, puis attend après l'EOF avant de quitter), `fail` (sert,
-/// puis quitte avec le code 3 à l'EOF), `cargo` (annonce son propre exécutable comme `cargo build`
-/// et quitte sans rien lire).
+/// Modes : `server` (sert les sessions), `noisy` (deux lignes parasites d'abord, dont une de JSON
+/// qui n'est pas un objet), `silent` (lit sans jamais répondre), `sleep=<ms>` (sert, puis attend
+/// après l'EOF avant de quitter), `fail` (sert, puis quitte avec le code 3 à l'EOF), `cargo`
+/// (annonce son propre exécutable comme `cargo build` et quitte sans rien lire).
 #[test]
 #[expect(clippy::exit, reason = "le mode `fail` doit quitter avec un code non nul")]
 fn peer_main() {
@@ -217,6 +217,8 @@ fn peer_main() {
     }
     if mode == "noisy" {
         writeln!(out, "banner that is not JSON-RPC").unwrap();
+        // Du JSON, mais pas un objet : ignoré lui aussi.
+        writeln!(out, r#"["JSON", "but not an object"]"#).unwrap();
     }
     let server = FakeServer::new(&[tool("fr_search"), tool("fr_coverage")]);
     for line in io::stdin().lock().lines().map_while(Result::ok) {

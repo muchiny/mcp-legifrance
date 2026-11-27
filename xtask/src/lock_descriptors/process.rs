@@ -420,6 +420,8 @@ mod tests {
             artifact("other", "bin", json!("/t/other")),
             artifact("mcp-legifrance", "bin", json!("/t/first")),
             artifact("mcp-legifrance", "bin", json!("/t/last")),
+            // Un autre binaire annoncé après : ce n'est pas le sien.
+            artifact("other", "bin", json!("/t/other-after")),
         ]
         .join("\n");
         assert_eq!(built_executable(&output, "mcp-legifrance").unwrap(), PathBuf::from("/t/last"));

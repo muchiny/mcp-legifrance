@@ -250,12 +250,13 @@ fn launch(requests: &[String]) -> Result<Vec<String>, String> {
     drive(command, requests, ANSWER_TIMEOUT)
 }
 
-/// Remplaçant de test : deux réponses fixes, sans construire ni lancer le binaire.
+/// Remplaçant de test : deux réponses fixes, sans construire ni lancer le binaire. Les
+/// instructions dépassent le plafond d'un caractère : `run` doit rendre l'échec du verdict.
 #[cfg(test)]
 #[expect(clippy::unnecessary_wraps, reason = "même signature que le lanceur réel")]
 fn launch(requests: &[String]) -> Result<Vec<String>, String> {
     assert_eq!(requests.len(), 2);
-    Ok(tests::canned(&"x".repeat(100), 3))
+    Ok(tests::canned(&"x".repeat(BUDGET_CHARS + 1), 3))
 }
 
 #[cfg(test)]
@@ -446,10 +447,14 @@ mod tests {
     }
 
     #[test]
-    fn the_public_run_uses_the_launcher() {
-        // Sous test, le lanceur est un remplaçant (deux réponses fixes, instructions de 100
-        // caractères) : `run` va au bout sans construire ni lancer le binaire.
-        assert_eq!(run(), Ok(()));
+    fn the_public_run_uses_the_launcher_and_returns_its_verdict() {
+        // Sous test, le lanceur est un remplaçant (deux réponses fixes, instructions d'un
+        // caractère de trop) : `run` va au bout sans construire ni lancer le binaire, et rend
+        // l'échec du verdict.
+        assert_eq!(
+            run(),
+            Err("instructions are 4001 characters, 1 over the budget of 4000".into())
+        );
     }
 
     // ---- le pilote de processus, sur des commandes `sh` --------------------------------------

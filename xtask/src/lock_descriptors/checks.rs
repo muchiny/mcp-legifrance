@@ -115,8 +115,9 @@ fn cited_tool_names(text: &str) -> Vec<&str> {
         while bytes.get(end).is_some_and(|b| b.is_ascii_lowercase() || *b == b'_') {
             end = end.saturating_add(1);
         }
+        // `fr_` sans suffixe (ou suivi de `_`) se réduit à `fr` : ce n'est pas un nom.
         let name = text[start..end].trim_end_matches('_');
-        if bounded && name.len() > 3 && bytes.get(end) != Some(&b'*') {
+        if bounded && name != "fr" && bytes.get(end) != Some(&b'*') {
             names.push(name);
         }
         from = end;
@@ -728,6 +729,38 @@ mod tests {
         assert_eq!(cited_tool_names("the fr_get_* family, then fr_search"), ["fr_search"]);
         assert_eq!(cited_tool_names("écrit fr_x"), ["fr_x"]);
         assert_eq!(cited_tool_names("no tool here"), Vec::<&str>::new());
+    }
+
+    #[test]
+    fn only_description_texts_are_searched_for_tool_names() {
+        // Un nom d'outil inconnu dans un texte qui n'est pas une description (ici le `title`
+        // d'une propriété) n'est pas une citation.
+        let found = tool_findings(|t| {
+            t["inputSchema"]["properties"]["query"]["title"] = json!("Like fr_ghost");
+        });
+        assert_eq!(found.errors, Vec::<String>::new());
+    }
+
+    #[test]
+    fn an_external_ref_inside_an_array_is_refused() {
+        let found = tool_findings(|t| {
+            t["inputSchema"]["properties"]["query"] =
+                json!({"anyOf": [{"type": "string"}, {"$ref": "https://example.com/q.json"}]});
+        });
+        assert!(
+            found
+                .errors
+                .iter()
+                .any(|error| error.ends_with("has the external $ref `https://example.com/q.json`")),
+            "{:?}",
+            found.errors
+        );
+    }
+
+    #[test]
+    fn a_description_of_exactly_1000_characters_is_accepted() {
+        let found = tool_findings(|t| t["description"] = json!(format!("{}.", "d".repeat(999))));
+        assert!(found.errors.is_empty(), "{:?}", found.errors);
     }
 
     #[test]
