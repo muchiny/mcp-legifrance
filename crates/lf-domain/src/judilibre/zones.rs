@@ -8,13 +8,15 @@
 //! - les zones manquent sur une décision ancienne (source `dila`).
 //!
 //! Les indices sont donc bornés au texte et ramenés à la limite de caractère précédente ; les
-//! fragments d'une partie sont pris par début croissant et joints par une ligne vide. Le
-//! découpage se fait sur le texte brut, avant sa mise en forme.
+//! fragments d'une partie sont pris par début croissant, ceux qui se chevauchent fusionnés, et
+//! joints par une ligne vide : une partie n'est jamais plus longue que le texte, séparateurs
+//! mis à part. Le découpage se fait sur le texte brut, avant sa mise en forme.
 
 use super::DecisionPart;
 
-/// Plus grand nombre de fragments gardés pour une décision : la plus découpée des décisions
-/// lues en a huit. Au-delà, les fragments de trop sont ignorés.
+/// Plus grand nombre de fragments gardés pour une partie : la plus découpée des décisions lues
+/// en a huit en tout. Au-delà, les fragments de trop de cette partie sont ignorés ; les autres
+/// parties gardent les leurs.
 pub const ZONE_SPANS_MAX: usize = 256;
 
 /// Séparateur des fragments d'une partie.
@@ -29,15 +31,27 @@ pub struct ZoneSpan {
     pub end: u32,
 }
 
-/// Zones d'une décision : les fragments de chaque partie, au plus [`ZONE_SPANS_MAX`].
+/// Zones d'une décision : les fragments de chaque partie, au plus [`ZONE_SPANS_MAX`] par partie.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Zones(Vec<(DecisionPart, ZoneSpan)>);
 
 impl Zones {
-    /// Zones faites des fragments donnés, dans l'ordre reçu ; au-delà de [`ZONE_SPANS_MAX`], les
-    /// suivants sont ignorés.
+    /// Zones faites des fragments non vides donnés, dans l'ordre reçu ; un fragment vide ou
+    /// inversé est ignoré, et au-delà de [`ZONE_SPANS_MAX`] fragments d'une même partie, les
+    /// suivants de cette partie aussi.
     pub fn of(spans: impl IntoIterator<Item = (DecisionPart, ZoneSpan)>) -> Self {
-        Self(spans.into_iter().take(ZONE_SPANS_MAX).collect())
+        // Un compteur par partie ; chaque partie n'y figure qu'une fois.
+        let mut kept = DecisionPart::ALL.map(|part| (part, 0_usize));
+        let mut zones = Vec::new();
+        for (part, span) in spans.into_iter().filter(|(_, span)| span.start < span.end) {
+            for (of, count) in &mut kept {
+                if *of == part && *count < ZONE_SPANS_MAX {
+                    *count = count.saturating_add(1);
+                    zones.push((part, span));
+                }
+            }
+        }
+        Self(zones)
     }
 
     /// Vrai si la décision n'a aucune zone.
@@ -45,17 +59,25 @@ impl Zones {
         self.0.is_empty()
     }
 
-    /// Fragments de `part`, par début croissant.
+    /// Fragments non vides de `part`, par début croissant, ceux qui se chevauchent fusionnés.
     fn spans(&self, part: DecisionPart) -> Vec<ZoneSpan> {
         let mut spans: Vec<ZoneSpan> =
             self.0.iter().filter(|(of, _)| *of == part).map(|(_, span)| *span).collect();
         spans.sort_unstable();
-        spans
+        let mut merged: Vec<ZoneSpan> = Vec::with_capacity(spans.len());
+        for span in spans {
+            match merged.last_mut() {
+                Some(last) if span.start < last.end => last.end = last.end.max(span.end),
+                _ => merged.push(span),
+            }
+        }
+        merged
     }
 }
 
-/// Texte de `part` dans `text` : ses fragments, bornés au texte, pris par début croissant, sans
-/// blancs de bord et joints par une ligne vide. `None` si la partie n'a aucun fragment non blanc.
+/// Texte de `part` dans `text` : ses fragments, bornés au texte, pris par début croissant (ceux
+/// qui se chevauchent fusionnés), sans blancs de bord et joints par une ligne vide. `None` si la
+/// partie n'a aucun fragment non blanc.
 ///
 /// ```
 /// use lf_domain::judilibre::{DecisionPart, ZoneSpan, Zones, part_text};
@@ -89,7 +111,8 @@ pub fn part_text(text: &str, zones: &Zones, part: DecisionPart) -> Option<String
 fn byte_offsets(text: &str, offsets: &[u32]) -> Vec<usize> {
     let mut order: Vec<(u32, usize)> = offsets.iter().copied().zip(0_usize..).collect();
     order.sort_unstable();
-    let mut found = vec![text.len(); offsets.len()];
+    // (rang dans `offsets`, octet), remis dans l'ordre de `offsets` à la fin.
+    let mut found = Vec::with_capacity(offsets.len());
     let mut chars = text.char_indices().peekable();
     // Unités UTF-16 avant le caractère que `chars` montre.
     let mut units: u64 = 0;
@@ -103,11 +126,10 @@ fn byte_offsets(text: &str, offsets: &[u32]) -> Vec<usize> {
             units = after;
             chars.next();
         }
-        if let Some(byte) = found.get_mut(slot) {
-            *byte = chars.peek().map_or(text.len(), |(index, _)| *index);
-        }
+        found.push((slot, chars.peek().map_or(text.len(), |(index, _)| *index)));
     }
-    found
+    found.sort_unstable();
+    found.into_iter().map(|(_, byte)| byte).collect()
 }
 
 /// Longueur d'un caractère en unités UTF-16 : 1 ou 2.
@@ -203,15 +225,64 @@ mod tests {
     }
 
     #[test]
-    fn zones_keep_at_most_the_bound() {
-        let many = (0..300).map(|start| (DecisionPart::Annexes, span(start, start + 1)));
-        let zones = Zones::of(many);
+    fn zones_keep_at_most_the_bound_per_part() {
+        // Des fragments vides ou inversés ne comptent pas dans la borne.
+        let junk = (0..300).map(|_| (DecisionPart::Annexes, span(5, 5)));
+        let zones = Zones::of(
+            junk.chain([(DecisionPart::Annexes, span(8, 2)), (DecisionPart::Annexes, span(0, 1))]),
+        );
+        assert_eq!(zones.spans(DecisionPart::Annexes), [span(0, 1)]);
+        // 300 fragments d'annexes reçus avant le dispositif : le dispositif garde le sien.
+        let many = (0..300_u32).map(|n| {
+            let start = n.saturating_mul(2);
+            (DecisionPart::Annexes, span(start, start.saturating_add(1)))
+        });
+        let zones = Zones::of(many.chain([(DecisionPart::Dispositif, span(0, 1))]));
         assert_eq!(zones.spans(DecisionPart::Annexes).len(), ZONE_SPANS_MAX);
+        assert_eq!(zones.spans(DecisionPart::Dispositif), [span(0, 1)]);
+        // Trois parties mêlées : chacune garde la borne entière, quels que soient les fragments
+        // des autres (un compteur mal apparié en garderait la moitié).
+        let parts = [DecisionPart::Moyens, DecisionPart::Motivations, DecisionPart::Dispositif];
+        let mixed = (0..300_u32).flat_map(|n| {
+            let start = n.saturating_mul(2);
+            parts.map(|part| (part, span(start, start.saturating_add(1))))
+        });
+        let zones = Zones::of(mixed);
+        for part in parts {
+            assert_eq!(zones.spans(part).len(), ZONE_SPANS_MAX, "{part:?}");
+        }
+    }
+
+    #[test]
+    fn overlapping_fragments_are_merged_never_repeated() {
+        let text = "0123456789";
+        // Le même fragment répété jusqu'à la borne ne donne qu'une copie du texte.
+        let same =
+            Zones::of((0..ZONE_SPANS_MAX).map(|_| (DecisionPart::Dispositif, span(0, u32::MAX))));
+        assert_eq!(part_text(text, &same, DecisionPart::Dispositif).as_deref(), Some(text));
+        // Chevauchement fusionné ; fragments contigus gardés à part ; fragment inclus absorbé.
+        let zones = Zones::of([
+            (DecisionPart::Moyens, span(5, 8)),
+            (DecisionPart::Moyens, span(0, 3)),
+            (DecisionPart::Moyens, span(2, 5)),
+            (DecisionPart::Moyens, span(6, 7)),
+        ]);
+        assert_eq!(zones.spans(DecisionPart::Moyens), [span(0, 5), span(5, 8)]);
+        assert_eq!(part_text(text, &zones, DecisionPart::Moyens).as_deref(), Some("01234\n\n567"));
+    }
+
+    #[test]
+    fn utf16_length_changes_after_the_basic_plane() {
+        assert_eq!(len_utf16('\u{FFFF}'), 1);
+        assert_eq!(len_utf16('\u{10000}'), 2);
+        let text = "\u{FFFF}a\u{10000}b";
+        assert_eq!(byte_offsets(text, &[1, 2, 4]), [3, 4, 8]);
     }
 
     proptest! {
         /// Sur tout texte et tous indices, le découpage ne panique pas, rend des limites de
-        /// caractère, et chaque fragment est un morceau du texte.
+        /// caractère, chaque fragment est un morceau du texte, et la partie ne répète rien : sans
+        /// ses séparateurs, elle n'est pas plus longue que le texte.
         #[test]
         fn slicing_never_panics_and_stays_inside_the_text(
             text in "\\PC{0,40}[😀é]{0,3}\\PC{0,10}",
@@ -223,9 +294,12 @@ mod tests {
             }
             let zones = Zones::of(spans.iter().map(|(a, b)| (DecisionPart::Motivations, span(*a, *b))));
             if let Some(part) = part_text(&text, &zones, DecisionPart::Motivations) {
+                let mut length = 0_usize;
                 for piece in part.split(FRAGMENT_SEPARATOR) {
                     prop_assert!(text.contains(piece));
+                    length = length.saturating_add(piece.len());
                 }
+                prop_assert!(length <= text.len());
             }
         }
     }

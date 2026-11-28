@@ -194,19 +194,17 @@ mod tests {
         assert!(query(1, 10, filters(Some("2020-01-01"), Some("2020-01-01"))).is_ok());
         assert!(query(1, 10, filters(Some("2020-01-01"), None)).is_ok());
         assert!(query(1, 10, filters(None, Some("2020-01-01"))).is_ok());
-        assert!(matches!(
-            query(1, 10, filters(Some("2021-01-01"), Some("2020-12-31"))),
-            Err(DomainError::InvertedDateRange { .. })
-        ));
+        let inverted = Err(DomainError::InvertedDateRange {
+            from: VersionDate::parse("2021-01-01").unwrap(),
+            to: VersionDate::parse("2020-12-31").unwrap(),
+        });
+        assert_eq!(query(1, 10, filters(Some("2021-01-01"), Some("2020-12-31"))), inverted);
         // La date passe avant la taille de page et la fenêtre.
-        assert!(matches!(
-            query(400, 51, filters(Some("2021-01-01"), Some("2020-12-31"))),
-            Err(DomainError::InvertedDateRange { .. })
-        ));
-        assert!(matches!(
+        assert_eq!(query(400, 51, filters(Some("2021-01-01"), Some("2020-12-31"))), inverted);
+        assert_eq!(
             query(400, 51, filters(None, None)),
-            Err(DomainError::OutOfRange { .. })
-        ));
+            Err(DomainError::OutOfRange { field: "page_size", value: 51, min: 1, max: 50 })
+        );
     }
 
     #[test]
@@ -226,7 +224,10 @@ mod tests {
     fn sort_names_round_trip() {
         assert_eq!(CaseLawSort::ALL.map(CaseLawSort::name), CaseLawSort::NAMES);
         for sort in CaseLawSort::ALL {
-            assert_eq!(CaseLawSort::parse(&format!(" {} ", sort.name().to_uppercase())), Some(sort));
+            assert_eq!(
+                CaseLawSort::parse(&format!(" {} ", sort.name().to_uppercase())),
+                Some(sort)
+            );
         }
         assert_eq!(CaseLawSort::parse("scorepub"), None);
         assert_eq!(CaseLawSort::default(), CaseLawSort::Relevance);

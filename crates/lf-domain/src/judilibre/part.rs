@@ -24,8 +24,14 @@ pub enum SearchPart {
 
 impl SearchPart {
     /// Les six parties, dans l'ordre de la description de l'outil.
-    pub const ALL: [Self; 6] =
-        [Self::Motivations, Self::Dispositif, Self::Expose, Self::Moyens, Self::Summary, Self::Visa];
+    pub const ALL: [Self; 6] = [
+        Self::Motivations,
+        Self::Dispositif,
+        Self::Expose,
+        Self::Moyens,
+        Self::Summary,
+        Self::Visa,
+    ];
 
     /// Valeurs admises de `part`, dans l'ordre de [`SearchPart::ALL`].
     pub const NAMES: [&'static str; 6] =

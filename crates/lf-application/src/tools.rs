@@ -3,8 +3,8 @@
 //! Source unique des noms : l'audit les inscrit (`AuditRecord::tool`) et l'adapter MCP les
 //! enregistre. [`ToolName::ALL`] sert au test de dérive entre les deux.
 //!
-//! `ALL` compte les dix-sept outils enregistrés (v0.1 à v0.3, puis les deux du BOFiP, jalon MB,
-//! et les deux de Service-Public, jalon MS). La lecture d'une resource est auditée sous
+//! `ALL` compte les dix-neuf outils enregistrés (v0.1 à v0.3, puis les deux du BOFiP, jalon MB,
+//! les deux de Service-Public, jalon MS, et les deux de Judilibre, jalon MJ). La lecture d'une resource est auditée sous
 //! `resource:<gabarit>` (`RESOURCE_*`, 05 §8.2) : ces noms ne sont pas des outils et ne figurent
 //! jamais dans `ALL`.
 
@@ -50,6 +50,10 @@ impl ToolName {
     pub const FR_SEARCH_SERVICE_PUBLIC: Self = Self("fr_search_service_public");
     /// `fr_get_service_public` (MS) : la lecture d'une fiche ou d'un dossier de Service-Public.
     pub const FR_GET_SERVICE_PUBLIC: Self = Self("fr_get_service_public");
+    /// `fr_search_judilibre` (MJ) : la recherche dans la jurisprudence judiciaire en open data.
+    pub const FR_SEARCH_JUDILIBRE: Self = Self("fr_search_judilibre");
+    /// `fr_get_judilibre` (MJ) : la lecture d'une décision de Judilibre.
+    pub const FR_GET_JUDILIBRE: Self = Self("fr_get_judilibre");
 
     /// Lecture de la resource `legifrance://article/{article_id}` (M7), nom d'audit
     /// `resource:article`.
@@ -64,11 +68,11 @@ impl ToolName {
     /// Lecture de `legifrance://coverage` (M7), nom d'audit `resource:coverage`.
     pub const RESOURCE_COVERAGE: Self = Self("resource:coverage");
 
-    /// Les dix-sept outils enregistrés, dans l'ordre du catalogue (05 §3) : les huit de la v0.1,
-    /// puis ceux de M6 et de M7, puis les deux du BOFiP (MB), puis les deux de Service-Public
-    /// (MS). Les nouveaux noms s'ajoutent à la fin : `ALL[..8]` désigne les outils de la v0.1 et
+    /// Les dix-neuf outils enregistrés, dans l'ordre du catalogue (05 §3) : les huit de la v0.1,
+    /// puis ceux de M6 et de M7, puis les deux du BOFiP (MB), les deux de Service-Public (MS) et
+    /// les deux de Judilibre (MJ). Les nouveaux noms s'ajoutent à la fin : `ALL[..8]` désigne les outils de la v0.1 et
     /// `ALL[..13]` ceux de la v0.3 d'origine.
-    pub const ALL: [Self; 17] = [
+    pub const ALL: [Self; 19] = [
         Self::FR_SEARCH,
         Self::FR_GET_ACT,
         Self::FR_GET_TEXT,
@@ -86,6 +90,8 @@ impl ToolName {
         Self::FR_GET_BOFIP,
         Self::FR_SEARCH_SERVICE_PUBLIC,
         Self::FR_GET_SERVICE_PUBLIC,
+        Self::FR_SEARCH_JUDILIBRE,
+        Self::FR_GET_JUDILIBRE,
     ];
 
     /// Le nom tel qu'il apparaît dans `tools/list` et dans le journal d'audit.
@@ -124,6 +130,8 @@ mod tests {
                 "fr_get_bofip",
                 "fr_search_service_public",
                 "fr_get_service_public",
+                "fr_search_judilibre",
+                "fr_get_judilibre",
             ]
         );
         assert!(names.iter().all(|name| name.starts_with("fr_")));
@@ -147,10 +155,11 @@ mod tests {
         assert_eq!(names.len(), later.len());
     }
 
-    /// Les deux outils du BOFiP (T-MB-30), puis les deux de Service-Public (T-MS-30), viennent à
-    /// la fin de `ALL` : les treize premiers noms, et leur ordre, sont ceux d'avant le jalon MB.
+    /// Les deux outils du BOFiP (T-MB-30), puis les deux de Service-Public (T-MS-30), puis les
+    /// deux de Judilibre (T-MJ-30), viennent à la fin de `ALL` : les treize premiers noms, et leur
+    /// ordre, sont ceux d'avant le jalon MB.
     #[test]
-    fn bofip_then_service_public_tools_are_the_last_four_of_all() {
+    fn bofip_then_service_public_then_judilibre_tools_are_the_last_six_of_all() {
         assert_eq!(
             ToolName::ALL[13..],
             [
@@ -158,6 +167,8 @@ mod tests {
                 ToolName::FR_GET_BOFIP,
                 ToolName::FR_SEARCH_SERVICE_PUBLIC,
                 ToolName::FR_GET_SERVICE_PUBLIC,
+                ToolName::FR_SEARCH_JUDILIBRE,
+                ToolName::FR_GET_JUDILIBRE,
             ]
         );
         assert_eq!(ToolName::ALL[12], ToolName::FR_SEARCH_ALL);
@@ -184,6 +195,8 @@ mod tests {
             ToolName::FR_GET_BOFIP,
             ToolName::FR_SEARCH_SERVICE_PUBLIC,
             ToolName::FR_GET_SERVICE_PUBLIC,
+            ToolName::FR_SEARCH_JUDILIBRE,
+            ToolName::FR_GET_JUDILIBRE,
         ];
         assert_eq!(ToolName::ALL, constants);
         assert_eq!(ToolName::ALL.into_iter().collect::<HashSet<_>>().len(), constants.len());

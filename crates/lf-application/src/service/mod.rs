@@ -16,13 +16,16 @@
 //! (non audité, liste vide en cas d'erreur), dans `resource.rs` et `complete.rs`.
 
 use lf_domain::coverage::ConfigFacts;
-pub use lf_domain::coverage::{DoctrineSource, GuidanceSource};
+pub use lf_domain::coverage::{DoctrineSource, GuidanceSource, JudilibreSource};
 
 use crate::{
     audited::{AuditPolicy, Audited},
     budget::ResponseBudget,
     citation::resolve::Proof,
-    ports::{AuditLog, Clock, LegalCorpus, NoDoctrine, NoGuidance, PublicGuidance, TaxDoctrine},
+    ports::{
+        AuditLog, Clock, JudicialOpenData, LegalCorpus, NoCaseLaw, NoDoctrine, NoGuidance,
+        PublicGuidance, TaxDoctrine,
+    },
     usecase::complete::CompleteGate,
 };
 
@@ -35,6 +38,7 @@ mod get_company_agreement;
 mod get_convention;
 mod get_decision;
 mod get_deliberation;
+mod get_judilibre;
 mod get_related;
 mod get_service_public;
 mod get_text;
@@ -43,6 +47,7 @@ mod resource;
 mod search;
 mod search_all;
 mod search_bofip;
+mod search_judilibre;
 mod search_service_public;
 mod verify_citations;
 
@@ -71,10 +76,14 @@ pub struct ConfigurationState {
     /// coupée (FR-109), ou `NotServed`, le défaut, tant que le serveur ne sert pas ses outils.
     /// Posé par `lf-app` avec la source elle-même (`LegalService::with_guidance`).
     pub guidance: GuidanceSource,
+    /// État de la source Judilibre, pour `fr_coverage` : active (FR-110), coupée (FR-111), ou
+    /// `NotServed`, le défaut, tant que le serveur ne sert pas ses outils. Posé par `lf-app` avec
+    /// la source elle-même (`LegalService::with_case_law`).
+    pub judilibre: JudilibreSource,
 }
 
 impl ConfigurationState {
-    /// Les six faits que le domaine lit pour calculer la couverture ; la liste des problèmes
+    /// Les sept faits que le domaine lit pour calculer la couverture ; la liste des problèmes
     /// n'y entre pas.
     #[must_use]
     pub fn facts(&self) -> ConfigFacts {
@@ -85,6 +94,7 @@ impl ConfigurationState {
             local_snapshot: self.local_snapshot,
             doctrine: self.doctrine,
             guidance: self.guidance,
+            judilibre: self.judilibre,
         }
     }
 }
@@ -111,23 +121,26 @@ impl ServiceSettings {
 }
 
 /// Façade des cas d'usage, partagée par `Arc` entre les tâches. Elle est `Send + Sync` parce que
-/// `C`, `A`, `K`, `D` et `G` le sont par les bornes des ports.
+/// `C`, `A`, `K`, `D`, `G` et `J` le sont par les bornes des ports.
 ///
 /// `D` est la source de doctrine fiscale (BOFiP, ADR-0028). Son défaut, [`NoDoctrine`], est une
 /// source coupée : [`LegalService::new`] assemble une façade sans doctrine, et
 /// [`LegalService::with_doctrine`] pose la source. `G` est la source des fiches de Service-Public
 /// (ADR-0033), sur le même modèle : coupée par défaut ([`NoGuidance`]), posée par
-/// [`LegalService::with_guidance`].
+/// [`LegalService::with_guidance`]. `J` est la source Judilibre (ADR-0035), sur le même modèle :
+/// coupée par défaut ([`NoCaseLaw`]), posée par [`LegalService::with_case_law`].
 pub struct LegalService<
     C: LegalCorpus,
     A: AuditLog,
     K: Clock,
     D: TaxDoctrine = NoDoctrine,
     G: PublicGuidance = NoGuidance,
+    J: JudicialOpenData = NoCaseLaw,
 > {
     corpus: C,
     doctrine: D,
     guidance: G,
+    case_law: J,
     audited: Audited<A>,
     clock: K,
     settings: ServiceSettings,
@@ -136,8 +149,9 @@ pub struct LegalService<
 }
 
 impl<C: LegalCorpus, A: AuditLog, K: Clock> LegalService<C, A, K> {
-    /// Assemble la façade, sans source de doctrine ([`NoDoctrine`]) ni de Service-Public
-    /// ([`NoGuidance`]) ; `audit` est enveloppé dans un [`Audited`] qui suit `settings.policy`.
+    /// Assemble la façade, sans source de doctrine ([`NoDoctrine`]), de Service-Public
+    /// ([`NoGuidance`]) ni Judilibre ([`NoCaseLaw`]) ; `audit` est enveloppé dans un [`Audited`]
+    /// qui suit `settings.policy`.
     #[must_use]
     pub fn new(corpus: C, audit: A, clock: K, settings: ServiceSettings) -> Self {
         let audited = Audited::new(audit, settings.policy);
@@ -145,6 +159,7 @@ impl<C: LegalCorpus, A: AuditLog, K: Clock> LegalService<C, A, K> {
             corpus,
             doctrine: NoDoctrine,
             guidance: NoGuidance,
+            case_law: NoCaseLaw,
             audited,
             clock,
             settings,
@@ -153,17 +168,18 @@ impl<C: LegalCorpus, A: AuditLog, K: Clock> LegalService<C, A, K> {
     }
 }
 
-impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine, G: PublicGuidance>
-    LegalService<C, A, K, D, G>
+impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine, G: PublicGuidance, J: JudicialOpenData>
+    LegalService<C, A, K, D, G, J>
 {
     /// La même façade, avec `doctrine` pour source de doctrine fiscale. Le reste (corpus, source
     /// de Service-Public, audit, horloge, réglages, débit des complétions) est repris tel quel.
     #[must_use]
-    pub fn with_doctrine<D2: TaxDoctrine>(self, doctrine: D2) -> LegalService<C, A, K, D2, G> {
+    pub fn with_doctrine<D2: TaxDoctrine>(self, doctrine: D2) -> LegalService<C, A, K, D2, G, J> {
         LegalService {
             corpus: self.corpus,
             doctrine,
             guidance: self.guidance,
+            case_law: self.case_law,
             audited: self.audited,
             clock: self.clock,
             settings: self.settings,
@@ -174,11 +190,33 @@ impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine, G: PublicGuidance>
     /// La même façade, avec `guidance` pour source des fiches de Service-Public. Le reste est
     /// repris tel quel.
     #[must_use]
-    pub fn with_guidance<G2: PublicGuidance>(self, guidance: G2) -> LegalService<C, A, K, D, G2> {
+    pub fn with_guidance<G2: PublicGuidance>(
+        self,
+        guidance: G2,
+    ) -> LegalService<C, A, K, D, G2, J> {
         LegalService {
             corpus: self.corpus,
             doctrine: self.doctrine,
             guidance,
+            case_law: self.case_law,
+            audited: self.audited,
+            clock: self.clock,
+            settings: self.settings,
+            complete_gate: self.complete_gate,
+        }
+    }
+
+    /// La même façade, avec `case_law` pour source Judilibre. Le reste est repris tel quel.
+    #[must_use]
+    pub fn with_case_law<J2: JudicialOpenData>(
+        self,
+        case_law: J2,
+    ) -> LegalService<C, A, K, D, G, J2> {
+        LegalService {
+            corpus: self.corpus,
+            doctrine: self.doctrine,
+            guidance: self.guidance,
+            case_law,
             audited: self.audited,
             clock: self.clock,
             settings: self.settings,
@@ -207,7 +245,9 @@ pub(crate) mod bofip_fixtures {
         audited::{AuditMode, AuditPolicy},
         budget::ResponseBudget,
         ports::{AuditError, AuditLog, AuditRecord, NoDoctrine, PisteEnvironment},
-        testing::{FakeCorpus, FakeDoctrine, FakeGuidance, FixedClock, MemoryAuditLog},
+        testing::{
+            FakeCaseLaw, FakeCorpus, FakeDoctrine, FakeGuidance, FixedClock, MemoryAuditLog,
+        },
     };
 
     /// Journal partagé : le service possède le sien, le test en garde une poignée.
@@ -263,6 +303,22 @@ pub(crate) mod bofip_fixtures {
         let (service, log) = service_without_doctrine();
         (service.with_guidance(FakeGuidance::new()), log)
     }
+
+    /// Façade de test sans doctrine ni Service-Public, avec une fausse source Judilibre.
+    pub(crate) type CaseLawService = LegalService<
+        FakeCorpus,
+        SharedAudit,
+        FixedClock,
+        NoDoctrine,
+        crate::ports::NoGuidance,
+        FakeCaseLaw,
+    >;
+
+    /// La façade de `LegalService::new`, avec une fausse source Judilibre.
+    pub(crate) fn service_with_case_law() -> (CaseLawService, Arc<MemoryAuditLog>) {
+        let (service, log) = service_without_doctrine();
+        (service.with_case_law(FakeCaseLaw::new()), log)
+    }
 }
 
 #[cfg(test)]
@@ -303,6 +359,7 @@ mod tests {
                 local_snapshot: false,
                 doctrine: DoctrineSource::NotServed,
                 guidance: GuidanceSource::NotServed,
+                judilibre: JudilibreSource::NotServed,
             }
         );
         let degraded = ConfigurationState {
@@ -312,6 +369,7 @@ mod tests {
             local_snapshot: false,
             doctrine: DoctrineSource::NotServed,
             guidance: GuidanceSource::NotServed,
+            judilibre: JudilibreSource::NotServed,
         };
         assert_eq!(
             degraded.facts(),
@@ -322,6 +380,7 @@ mod tests {
                 local_snapshot: false,
                 doctrine: DoctrineSource::NotServed,
                 guidance: GuidanceSource::NotServed,
+                judilibre: JudilibreSource::NotServed,
             }
         );
         let snapshot = ConfigurationState { local_snapshot: true, ..Default::default() };
@@ -334,6 +393,7 @@ mod tests {
                 local_snapshot: true,
                 doctrine: DoctrineSource::NotServed,
                 guidance: GuidanceSource::NotServed,
+                judilibre: JudilibreSource::NotServed,
             }
         );
         // L'état de la source de doctrine passe tel quel, dans ses trois valeurs.
@@ -346,6 +406,12 @@ mod tests {
             let state = ConfigurationState { guidance, ..Default::default() };
             assert_eq!(state.facts().guidance, guidance);
         }
+        // Et celui de la source Judilibre.
+        for judilibre in [JudilibreSource::NotServed, JudilibreSource::Active, JudilibreSource::Off]
+        {
+            let state = ConfigurationState { judilibre, ..Default::default() };
+            assert_eq!(state.facts().judilibre, judilibre);
+        }
         // Une configuration par défaut n'a ni identifiants ni problème, PISTE pour source, et
         // aucun outil du BOFiP servi.
         assert_eq!(
@@ -357,6 +423,7 @@ mod tests {
                 local_snapshot: false,
                 doctrine: DoctrineSource::NotServed,
                 guidance: GuidanceSource::NotServed,
+                judilibre: JudilibreSource::NotServed,
             }
         );
     }

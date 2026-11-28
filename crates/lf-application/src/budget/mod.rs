@@ -11,7 +11,7 @@ use crate::{error::AppError, messages};
 
 pub mod reading;
 
-pub use reading::{PassageOut, Reading, ReadingRequest, read};
+pub use reading::{PassageOut, Reading, ReadingRequest, read, read_with_dispositif};
 
 /// Les bornes de réponse, en constantes : aucun réglage par instance (D12 du plan « fin du
 /// projet » : ni `MaxChars`, ni `PassageCount`, ni `TocLimit`).

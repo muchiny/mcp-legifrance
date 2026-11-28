@@ -7,6 +7,7 @@
 
 use std::future::Future;
 
+use crate::ports::JudicialOpenData;
 use crate::{
     audited::CallMeta,
     error::AppError,
@@ -19,8 +20,8 @@ use crate::{
 
 use super::LegalService;
 
-impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine, G: PublicGuidance>
-    LegalService<C, A, K, D, G>
+impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine, G: PublicGuidance, J: JudicialOpenData>
+    LegalService<C, A, K, D, G, J>
 {
     /// `fr_diff_article` : compare les versions d'un article en vigueur à deux dates (05 §5.12),
     /// auditée sous `fr_diff_article` (métrique : nombre de hunks).

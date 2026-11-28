@@ -7,6 +7,7 @@
 
 use std::future::Future;
 
+use crate::ports::JudicialOpenData;
 use crate::{
     audited::CallMeta,
     error::AppError,
@@ -19,8 +20,8 @@ use crate::{
 
 use super::LegalService;
 
-impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine, G: PublicGuidance>
-    LegalService<C, A, K, D, G>
+impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine, G: PublicGuidance, J: JudicialOpenData>
+    LegalService<C, A, K, D, G, J>
 {
     /// `fr_coverage` : ce que le serveur couvre, son environnement et l'état de sa configuration,
     /// sans appel au port (05 §5.8). Métrique d'audit : le nombre de lacunes.

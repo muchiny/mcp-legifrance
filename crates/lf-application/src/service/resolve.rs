@@ -6,6 +6,7 @@
 
 use std::future::Future;
 
+use crate::ports::JudicialOpenData;
 use crate::{
     audited::CallMeta,
     error::AppError,
@@ -18,8 +19,8 @@ use crate::{
 
 use super::LegalService;
 
-impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine, G: PublicGuidance>
-    LegalService<C, A, K, D, G>
+impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine, G: PublicGuidance, J: JudicialOpenData>
+    LegalService<C, A, K, D, G, J>
 {
     /// `fr_resolve` : transforme une citation libre en identifiants Légifrance (05 §5.10), auditée
     /// sous `fr_resolve` (métrique : 1).

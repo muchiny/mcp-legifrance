@@ -4,7 +4,10 @@
 //! 2017 est publiée au `0201-02-24`), aucun texte n'est réécrit. Seules les balises HTML des
 //! textes appliqués, des rapprochements et des extraits sont retirées.
 
-use crate::{date::CivilDate, text::LongText};
+use crate::{
+    date::CivilDate,
+    text::{LongText, flatten_whitespace, strip_invisible},
+};
 
 use super::{Court, JudilibreId, Zones};
 
@@ -131,6 +134,11 @@ pub struct ContestedDecision {
     pub solution: Option<String>,
 }
 
+/// Plus grand nombre de thèmes, de visas et de rapprochements gardés pour une décision : borne
+/// de sûreté contre une réponse anormale (la plus fournie des décisions lues le 2026-11-27 a
+/// 19 thèmes, 3 visas et 2 rapprochements). Au-delà, les suivants sont ignorés.
+pub const DECISION_LIST_MAX: usize = 100;
+
 /// Une décision lue par `fr_get_judilibre`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CaseLawDoc {
@@ -148,7 +156,7 @@ pub struct CaseLawDoc {
     pub solution: Option<String>,
     /// Niveau de publication, en clair.
     pub publication: Option<String>,
-    /// Thèmes, tous.
+    /// Thèmes, [`DECISION_LIST_MAX`] au plus.
     pub themes: Vec<String>,
     /// Sommaire de la Cour de cassation.
     pub summary: Option<String>,
@@ -156,9 +164,9 @@ pub struct CaseLawDoc {
     pub text: String,
     /// Zones du texte ; vides pour une décision ancienne.
     pub zones: Zones,
-    /// Textes appliqués, sans balises.
+    /// Textes appliqués, sans balises, [`DECISION_LIST_MAX`] au plus.
     pub visa: Vec<String>,
-    /// Rapprochements.
+    /// Rapprochements, [`DECISION_LIST_MAX`] au plus.
     pub related: Vec<RelatedDecision>,
     /// Décision attaquée.
     pub contested: Option<ContestedDecision>,
@@ -168,6 +176,23 @@ pub struct CaseLawDoc {
     pub partial: bool,
     /// La décision est retirée de la base : elle se rend comme introuvable.
     pub to_be_deleted: bool,
+}
+
+/// Champ court de Judilibre, qui n'est pas du HTML (numéro, date, code, thème, siège, mentions
+/// de la décision attaquée) : sans caractère invisible ni bidirectionnel, blancs repliés en une
+/// espace, bords retirés. `None` s'il ne reste rien.
+///
+/// ```
+/// use lf_domain::judilibre::short_field;
+///
+/// assert_eq!(short_field(" Donation\u{E0049}\u{202E} \n indirecte ").as_deref(), Some("Donation indirecte"));
+/// assert_eq!(short_field("\u{200B} "), None);
+/// ```
+#[must_use]
+pub fn short_field(raw: &str) -> Option<String> {
+    let (visible, _) = strip_invisible(raw);
+    let flat = flatten_whitespace(&visible);
+    (!flat.is_empty()).then_some(flat)
 }
 
 /// Texte d'un fragment HTML court (intitulé, extrait), sans balises ni entités, sur une ligne.
@@ -190,24 +215,40 @@ pub fn excerpt(highlight: &str) -> Option<String> {
     Some(format!("{}…", kept.trim_end()))
 }
 
-/// Cible du premier lien (`href="…"` ou `href='…'`) d'un fragment HTML.
+/// Cible du premier lien (`href="…"` ou `href='…'`, sans égard à la casse ni aux blancs autour
+/// de `=`) d'un fragment HTML. Le nom doit être un attribut entier, précédé d'un blanc :
+/// `data-href` ne compte pas.
 fn first_href(html: &str) -> Option<&str> {
-    let start = html.find("href=")?.saturating_add("href=".len());
-    let rest = html.get(start..)?;
+    // La mise en minuscules ASCII garde les indices en octets du fragment.
+    let lower = html.to_ascii_lowercase();
+    // Les indices viennent de `match_indices` sur la copie : `get` ne rend jamais `None` ici, d'où
+    // `and_then` plutôt que `?`, qui laisserait une branche que rien ne peut prendre.
+    let rest = lower.match_indices("href").find_map(|(at, name)| {
+        let before = lower.get(..at).and_then(|head| head.chars().next_back());
+        if !before.is_some_and(char::is_whitespace) {
+            return None;
+        }
+        html.get(at.saturating_add(name.len())..)
+            .and_then(|after| after.trim_start().strip_prefix('='))
+            .map(str::trim_start)
+    })?;
     let quote = rest.chars().next().filter(|c| matches!(c, '"' | '\''))?;
-    let rest = rest.get(quote.len_utf8()..)?;
-    rest.find(quote).and_then(|end| rest.get(..end))
+    rest.strip_prefix(quote).and_then(|rest| rest.find(quote).and_then(|end| rest.get(..end)))
 }
 
-/// Identifiant `JURITEXT` + 12 chiffres contenu dans `target`, s'il y en a un.
+/// Identifiant `JURITEXT` + 12 chiffres contenu dans `target`, s'il y en a un ; un chiffre ou une
+/// lettre juste après le douzième chiffre l'écarte (identifiant d'une autre forme, jamais
+/// tronqué).
 fn juritext(target: &str) -> Option<String> {
     let start = target.find("JURITEXT")?;
-    let candidate = target.get(start..start.saturating_add(20))?;
-    candidate
-        .bytes()
-        .skip("JURITEXT".len())
-        .all(|byte| byte.is_ascii_digit())
-        .then(|| candidate.to_owned())
+    let end = start.saturating_add(20);
+    let candidate = target.get(start..end)?;
+    let digits = candidate.bytes().skip("JURITEXT".len()).all(|byte| byte.is_ascii_digit());
+    let bounded = target
+        .get(end..)
+        .and_then(|rest| rest.chars().next())
+        .is_none_or(|next| !next.is_ascii_alphanumeric());
+    (digits && bounded).then(|| candidate.to_owned())
 }
 
 #[cfg(test)]
@@ -216,7 +257,12 @@ mod tests {
 
     use super::*;
 
-    fn mention(court: &str, chamber: Option<&str>, formation: Option<&str>, date: &str) -> CaseLawMention {
+    fn mention(
+        court: &str,
+        chamber: Option<&str>,
+        formation: Option<&str>,
+        date: &str,
+    ) -> CaseLawMention {
         CaseLawMention {
             court: court.to_owned(),
             chamber: chamber.map(str::to_owned),
@@ -242,8 +288,12 @@ mod tests {
             cc.citation(Some("16-15.867")),
             "Cour de cassation, Première chambre civile, 20 novembre 2019, n° 16-15.867"
         );
-        let formation = mention("Cour de cassation", None, Some("Formation restreinte"), "2020-05-01");
-        assert_eq!(formation.citation(None), "Cour de cassation, Formation restreinte, 1er mai 2020");
+        let formation =
+            mention("Cour de cassation", None, Some("Formation restreinte"), "2020-05-01");
+        assert_eq!(
+            formation.citation(None),
+            "Cour de cassation, Formation restreinte, 1er mai 2020"
+        );
         let bare = mention("Tribunal judiciaire (tj75056)", None, None, "2024-02-29");
         assert_eq!(bare.citation(None), "Tribunal judiciaire (tj75056), 29 février 2024");
     }
@@ -251,7 +301,10 @@ mod tests {
     #[test]
     fn an_implausible_date_is_cited_as_published() {
         let old = mention("Cour d'appel de Paris", None, None, "0201-02-24");
-        assert_eq!(old.citation(Some("15/15181")), "Cour d'appel de Paris, 0201-02-24, n° 15/15181");
+        assert_eq!(
+            old.citation(Some("15/15181")),
+            "Cour d'appel de Paris, 0201-02-24, n° 15/15181"
+        );
         assert_eq!(citation_date("1799-12-31"), "1799-12-31");
         assert_eq!(citation_date("1800-01-01"), "1er janvier 1800");
         assert_eq!(citation_date(" 2019-02-30 "), "2019-02-30");
@@ -267,7 +320,10 @@ mod tests {
             ),
             "Article L. 132-13 du code des assurances."
         );
-        assert_eq!(strip_markup("sur la <em>vie</em>\n et l&#39;usufruit"), "sur la vie et l'usufruit");
+        assert_eq!(
+            strip_markup("sur la <em>vie</em>\n et l&#39;usufruit"),
+            "sur la vie et l'usufruit"
+        );
         assert_eq!(strip_markup("R<P"), "R<P");
         assert_eq!(strip_markup("  "), "");
     }
@@ -279,7 +335,8 @@ mod tests {
         let long = "mot ".repeat(200);
         let cut = excerpt(&long).unwrap();
         assert_eq!(cut.chars().count(), EXCERPT_MAX_CHARS);
-        assert!(cut.ends_with("mot…") || cut.ends_with("mo…") || cut.ends_with('…'));
+        // 299 caractères gardés : 74 fois « mot » et son blanc, puis « mot ».
+        assert!(cut.ends_with(" mot…"), "{cut}");
         let exact = "é".repeat(EXCERPT_MAX_CHARS);
         assert_eq!(excerpt(&exact).as_deref(), Some(exact.as_str()));
         let over = "é".repeat(EXCERPT_MAX_CHARS + 1);
@@ -292,7 +349,10 @@ mod tests {
             "1re Civ., 22 octobre 1980, pourvoi n° <a href=\"60794bf99ba5988459c445e1\">79-14.193</a>",
         );
         assert_eq!(judilibre.title, "1re Civ., 22 octobre 1980, pourvoi n° 79-14.193");
-        assert_eq!(judilibre.id.as_ref().map(JudilibreId::as_str), Some("60794bf99ba5988459c445e1"));
+        assert_eq!(
+            judilibre.id.as_ref().map(JudilibreId::as_str),
+            Some("60794bf99ba5988459c445e1")
+        );
         assert_eq!(judilibre.legifrance_id, None);
         let legifrance = RelatedDecision::from_html(
             "<a href='https://www.legifrance.gouv.fr/juri/id/JURITEXT000007006420'>1re Civ.</a>",
@@ -301,10 +361,39 @@ mod tests {
         assert_eq!(legifrance.legifrance_id.as_deref(), Some("JURITEXT000007006420"));
         let plain = RelatedDecision::from_html("Com., 3 mai 2006");
         assert_eq!((plain.id, plain.legifrance_id), (None, None));
-        for odd in ["<a href=x>y</a>", "<a href=\"unterminated>y</a>", "<a href=\"JURITEXT0000\">"] {
+        for odd in ["<a href=x>y</a>", "<a href=\"unterminated>y</a>", "<a href=\"JURITEXT0000\">"]
+        {
             let related = RelatedDecision::from_html(odd);
             assert_eq!((related.id, related.legifrance_id), (None, None), "{odd}");
         }
         assert_eq!(juritext("JURITEXT00000700642X"), None);
+        // Treize chiffres : un autre identifiant, jamais tronqué en celui des douze premiers.
+        assert_eq!(juritext("/juri/id/JURITEXT0000070064201"), None);
+        assert_eq!(juritext("JURITEXT000007006420X"), None);
+        assert_eq!(juritext("JURITEXT000007006420?x=1").as_deref(), Some("JURITEXT000007006420"));
+        // Casse et blancs du nom d'attribut ; un `href` sans `=` ne compte pas.
+        for html in [
+            "<A HREF=\"60794bf99ba5988459c445e1\">x</A>",
+            "<a data-href title='y' href = '60794bf99ba5988459c445e1'>x</a>",
+            "<a data-href=\"5fca624b7eeb384a40cafb85\" href='60794bf99ba5988459c445e1'>x</a>",
+        ] {
+            let related = RelatedDecision::from_html(html);
+            assert_eq!(
+                related.id.as_ref().map(JudilibreId::as_str),
+                Some("60794bf99ba5988459c445e1"),
+                "{html}"
+            );
+        }
+    }
+
+    #[test]
+    fn short_fields_lose_invisible_characters_and_inner_line_breaks() {
+        assert_eq!(short_field("  21-12.345 ").as_deref(), Some("21-12.345"));
+        assert_eq!(
+            short_field("Bail\u{200B} rural\u{202E}\u{E0041}\r\n\t commercial").as_deref(),
+            Some("Bail rural commercial")
+        );
+        assert_eq!(short_field("\u{FEFF}\u{2066} \u{2069}"), None);
+        assert_eq!(short_field(""), None);
     }
 }

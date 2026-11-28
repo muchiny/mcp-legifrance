@@ -1261,7 +1261,11 @@ mod tests {
     #[test]
     fn judilibre_gap_follows_the_source_state() {
         let of = |judilibre| {
-            coverage(PisteEnvironment::Production, &ConfigFacts { judilibre, ..HEALTHY }, &Fond::ALL)
+            coverage(
+                PisteEnvironment::Production,
+                &ConfigFacts { judilibre, ..HEALTHY },
+                &Fond::ALL,
+            )
         };
         let not_served = of(JudilibreSource::NotServed);
         assert_eq!(ids(&not_served).len(), 9);

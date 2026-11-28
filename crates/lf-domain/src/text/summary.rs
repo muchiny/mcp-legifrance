@@ -214,15 +214,21 @@ pub fn summary(
 
 /// Résumé de `text` dont le dispositif est déjà délimité, comme celui que les zones d'une
 /// décision de Judilibre désignent (ADR-0035, décision 5) : le sommaire officiel `official`, puis
-/// `dispositif` s'il n'est pas blanc, puis le début de `text`. Coupe et plafond de [`summary`].
+/// le texte que rend `dispositif` s'il n'est pas blanc, puis le début de `text`. `dispositif`
+/// n'est appelé que faute de sommaire officiel. Coupe et plafond de [`summary`].
 #[must_use]
 pub fn summary_with_dispositif(
     text: &LongText,
     official: Option<&OfficialSummary>,
-    dispositif: Option<&str>,
+    dispositif: impl FnOnce() -> Option<String>,
     max_chars: usize,
 ) -> Summary {
-    let given = || dispositif.map(str::trim).filter(|body| !body.is_empty()).map(str::to_owned);
+    let given = || {
+        dispositif().and_then(|body| {
+            let body = body.trim();
+            (!body.is_empty()).then(|| body.to_owned())
+        })
+    };
     built(text, official, given, max_chars)
 }
 
@@ -805,21 +811,29 @@ mod tests {
     fn a_given_dispositif_comes_after_the_official_summary_and_before_the_lead() {
         let decision = long(&["Entête de l'arrêt.", "PAR CES MOTIFS, la Cour casse et annule."]);
         let given = official(&["Sommaire officiel de la décision."], &[]);
-        let ruling = Some("PAR CES MOTIFS, la Cour :\n\nCASSE ET ANNULE.");
+        let ruling = || Some("PAR CES MOTIFS, la Cour :\n\nCASSE ET ANNULE.".to_owned());
+        // Le sommaire officiel l'emporte : le dispositif n'est même pas demandé.
+        let asked = std::cell::Cell::new(false);
+        let lazy = || {
+            asked.set(true);
+            ruling()
+        };
         assert_eq!(
-            parts(&summary_with_dispositif(&decision, Some(&given), ruling, 4_000)),
+            parts(&summary_with_dispositif(&decision, Some(&given), lazy, 4_000)),
             (SummarySource::Official, "Sommaire officiel de la décision.", false)
         );
+        assert!(!asked.get());
         assert_eq!(
-            parts(&summary_with_dispositif(&decision, None, ruling, 4_000)),
+            parts(&summary_with_dispositif(&decision, None, lazy, 4_000)),
             (SummarySource::Dispositif, "PAR CES MOTIFS, la Cour :\n\nCASSE ET ANNULE.", false)
         );
+        assert!(asked.get());
         for blank in [None, Some(""), Some(" \n ")] {
-            let got = summary_with_dispositif(&decision, None, blank, 4_000);
+            let got = summary_with_dispositif(&decision, None, || blank.map(str::to_owned), 4_000);
             assert_eq!(got.source, SummarySource::Lead);
             assert!(got.text.starts_with("Entête de l'arrêt."));
         }
-        let cut = summary_with_dispositif(&decision, None, Some(&sentences(80)), 100);
+        let cut = summary_with_dispositif(&decision, None, || Some(sentences(80)), 100);
         assert_eq!(cut.source, SummarySource::Dispositif);
         assert!(cut.truncated && chars(&cut.text) <= 100);
     }

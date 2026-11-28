@@ -7,15 +7,19 @@
 //! [`messages::corpus_error`], qui reste pur. Le module n'est pas pur (il émet un événement
 //! `tracing`), d'où sa place hors de `messages`.
 //!
-//! [`doctrine_failure`] fait de même pour une [`DoctrineError`] du port de doctrine (BOFiP), et
-//! [`guidance_failure`] pour une [`GuidanceError`] du port de Service-Public.
+//! [`doctrine_failure`] fait de même pour une [`DoctrineError`] du port de doctrine (BOFiP),
+//! [`guidance_failure`] pour une [`GuidanceError`] du port de Service-Public, et
+//! [`case_law_failure`] pour une [`CaseLawError`] du port Judilibre.
 
-use lf_domain::guidance::{Audience, SheetId};
+use lf_domain::{
+    guidance::{Audience, SheetId},
+    judilibre::JudilibreId,
+};
 
 use crate::{
     error::AppError,
     messages,
-    ports::{CorpusError, DoctrineError, GuidanceError, PortalCode},
+    ports::{CaseLawError, CorpusError, DoctrineError, GuidanceError, PortalCode},
     tools::ToolName,
 };
 
@@ -133,6 +137,47 @@ fn guidance_variant_and_detail(error: &GuidanceError) -> (&'static str, Option<&
         GuidanceError::Timeout => ("Timeout", None),
         GuidanceError::Decode { detail } => ("Decode", Some(detail)),
         GuidanceError::TooLarge { detail } => ("TooLarge", Some(detail)),
+    }
+}
+
+/// Traduit l'erreur du port Judilibre en `AppError` pour `tool`, après l'avoir journalisée.
+///
+/// L'événement `case law call failed` porte l'outil, le nom de la variante et le `detail` fixe de
+/// l'adapter ; jamais un mot de la recherche ni l'identifiant demandé, valeurs d'arguments (02
+/// §11.3). Niveau `info` pour une décision introuvable et pour une source coupée, issues
+/// attendues ; `warn` sinon. `missing` est la décision demandée par une lecture, que le message
+/// `not_found` cite.
+#[must_use]
+pub fn case_law_failure(
+    tool: ToolName,
+    missing: Option<&JudilibreId>,
+    error: &CaseLawError,
+) -> AppError {
+    let (variant, detail) = case_law_variant_and_detail(error);
+    let tool_name = tool.as_str();
+    if matches!(error, CaseLawError::NotFound | CaseLawError::Disabled) {
+        tracing::info!(tool = tool_name, variant, detail, "case law call failed");
+    } else {
+        tracing::warn!(tool = tool_name, variant, detail, "case law call failed");
+    }
+    messages::case_law_error(missing, error)
+}
+
+/// Nom de la variante et texte de journal de l'erreur du port Judilibre. Le `match` est
+/// exhaustif : une variante ajoutée au port devra dire ce qu'elle journalise.
+fn case_law_variant_and_detail(error: &CaseLawError) -> (&'static str, Option<&str>) {
+    match error {
+        CaseLawError::Disabled => ("Disabled", None),
+        CaseLawError::NotSubscribed => ("NotSubscribed", None),
+        CaseLawError::NotFound => ("NotFound", None),
+        CaseLawError::RateLimited { retry_after: _ } => ("RateLimited", None),
+        CaseLawError::Rejected { status: _ } => ("Rejected", None),
+        CaseLawError::Upstream { status: _, retryable: _, detail } => ("Upstream", Some(detail)),
+        CaseLawError::Timeout => ("Timeout", None),
+        CaseLawError::Auth { origin: _, status: _, detail } => ("Auth", Some(detail)),
+        CaseLawError::Config { kind: _, detail } => ("Config", Some(detail)),
+        CaseLawError::Decode { detail } => ("Decode", Some(detail)),
+        CaseLawError::TooLarge { detail } => ("TooLarge", Some(detail)),
     }
 }
 
@@ -426,6 +471,103 @@ mod tests {
         assert_eq!(
             capture.event_fields(),
             vec![(Level::WARN, guidance_fields("fr_search_service_public", "Timeout", None))]
+        );
+    }
+
+    /// Champs attendus de l'événement d'échec du port Judilibre.
+    fn case_law_fields(
+        tool: &str,
+        variant: &str,
+        detail: Option<&str>,
+    ) -> BTreeMap<&'static str, String> {
+        let mut fields = fields(tool, variant, detail);
+        fields.insert("message", "case law call failed".to_owned());
+        fields
+    }
+
+    /// Les variantes du port Judilibre, avec le niveau, le nom et le détail attendus.
+    fn case_law_rows() -> Vec<(CaseLawError, Level, &'static str, Option<&'static str>)> {
+        let fixed = |text: &str| text.to_owned();
+        vec![
+            (CaseLawError::Disabled, Level::INFO, "Disabled", None),
+            (CaseLawError::NotFound, Level::INFO, "NotFound", None),
+            (CaseLawError::NotSubscribed, Level::WARN, "NotSubscribed", None),
+            (
+                CaseLawError::RateLimited { retry_after: Some(Duration::from_secs(1)) },
+                Level::WARN,
+                "RateLimited",
+                None,
+            ),
+            (CaseLawError::Rejected { status: Some(416) }, Level::WARN, "Rejected", None),
+            (
+                CaseLawError::Upstream {
+                    status: Some(502),
+                    retryable: true,
+                    detail: fixed("HTTP 502 on /cassation/judilibre/v1.0/search"),
+                },
+                Level::WARN,
+                "Upstream",
+                Some("HTTP 502 on /cassation/judilibre/v1.0/search"),
+            ),
+            (CaseLawError::Timeout, Level::WARN, "Timeout", None),
+            (
+                CaseLawError::Auth {
+                    origin: AuthOrigin::Token,
+                    status: Some(401),
+                    detail: fixed("token endpoint returned 401"),
+                },
+                Level::WARN,
+                "Auth",
+                Some("token endpoint returned 401"),
+            ),
+            (
+                CaseLawError::Config {
+                    kind: ConfigKind::CredentialsMissing,
+                    detail: fixed("credentials missing"),
+                },
+                Level::WARN,
+                "Config",
+                Some("credentials missing"),
+            ),
+            (
+                CaseLawError::Decode { detail: fixed("missing field `text`") },
+                Level::WARN,
+                "Decode",
+                Some("missing field `text`"),
+            ),
+            (
+                CaseLawError::TooLarge { detail: fixed("body over 16 MiB") },
+                Level::WARN,
+                "TooLarge",
+                Some("body over 16 MiB"),
+            ),
+        ]
+    }
+
+    #[test]
+    fn case_law_failure_logs_the_detail_then_returns_the_model_message() {
+        let id = JudilibreId::parse("5fca624b7eeb384a40cafb85").unwrap();
+        for (error, level, variant, detail) in case_law_rows() {
+            let (capture, _guard) = Capture::install();
+            let got = case_law_failure(ToolName::FR_GET_JUDILIBRE, Some(&id), &error);
+            assert_eq!(got, messages::case_law_error(Some(&id), &error));
+            assert_eq!(
+                capture.event_fields(),
+                vec![(level, case_law_fields("fr_get_judilibre", variant, detail))],
+                "{variant}"
+            );
+            // L'identifiant demandé (argument du modèle) n'est jamais journalisé.
+            assert!(!capture.all_values().iter().any(|v| v.contains("5fca624b")), "{variant}");
+        }
+    }
+
+    #[test]
+    fn case_law_failure_names_the_tool_it_was_called_for() {
+        let (capture, _guard) = Capture::install();
+        let _ = case_law_failure(ToolName::FR_SEARCH_JUDILIBRE, None, &CaseLawError::Timeout);
+        assert_eq!(
+            capture.event_fields(),
+            vec![(Level::WARN, case_law_fields("fr_search_judilibre", "Timeout", None))]
         );
     }
 }

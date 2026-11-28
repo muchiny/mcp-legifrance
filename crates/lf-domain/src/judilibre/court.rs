@@ -172,7 +172,10 @@ mod tests {
         assert_eq!(set.iter().collect::<Vec<_>>(), [Court::Appeal, Court::Judicial]);
         for court in Court::ALL {
             let single = CourtSet::of([court]).unwrap();
-            assert_eq!(Court::ALL.map(|other| single.contains(other)), Court::ALL.map(|other| other == court));
+            assert_eq!(
+                Court::ALL.map(|other| single.contains(other)),
+                Court::ALL.map(|other| other == court)
+            );
         }
     }
 }

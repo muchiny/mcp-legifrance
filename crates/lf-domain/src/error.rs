@@ -314,8 +314,8 @@ mod tests {
         doctrine::{BoiId, Serie},
         ecli::Ecli,
         guidance::SheetId,
-        judilibre::JudilibreId,
         id::{AnyId, ArticleId, DecisionId, DocumentId, LegiTextId, SectionId, parse_versioned},
+        judilibre::JudilibreId,
     };
     use pretty_assertions::assert_eq;
     use proptest::prelude::*;

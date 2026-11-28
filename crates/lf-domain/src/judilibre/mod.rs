@@ -27,7 +27,8 @@ mod zones;
 pub use court::{Court, CourtSet};
 pub use doc::{
     CITATION_YEAR_MIN, CaseLawDoc, CaseLawHit, CaseLawMention, CaseLawPage, ContestedDecision,
-    EXCERPT_MAX_CHARS, HIT_THEMES_MAX, RelatedDecision, excerpt, strip_markup,
+    DECISION_LIST_MAX, EXCERPT_MAX_CHARS, HIT_THEMES_MAX, RelatedDecision, excerpt, short_field,
+    strip_markup,
 };
 pub use id::{JUDILIBRE_ID_CHARS, JudilibreId};
 pub use labels::{chamber_label, court_label, formation_label, publication_label, solution_label};
@@ -54,6 +55,9 @@ mod tests {
     #[test]
     fn the_public_address_has_a_strict_grammar() {
         let id = JudilibreId::parse("5FCA624B7EEB384A40CAFB85").unwrap();
-        assert_eq!(public_url(&id), "https://www.courdecassation.fr/decision/5fca624b7eeb384a40cafb85");
+        assert_eq!(
+            public_url(&id),
+            "https://www.courdecassation.fr/decision/5fca624b7eeb384a40cafb85"
+        );
     }
 }

@@ -115,8 +115,9 @@ pub fn court_label(court: Court, location: Option<&str>) -> String {
     let location = location.map(str::trim).filter(|code| !code.is_empty());
     match (court, location) {
         (Court::Cassation, _) | (_, None) => court.generic_label().to_owned(),
-        (Court::Appeal, Some(code)) => label_in(&APPEAL_COURTS, code)
-            .map_or_else(|| with_code(court, code), str::to_owned),
+        (Court::Appeal, Some(code)) => {
+            label_in(&APPEAL_COURTS, code).map_or_else(|| with_code(court, code), str::to_owned)
+        }
         (_, Some(code)) => with_code(court, code),
     }
 }

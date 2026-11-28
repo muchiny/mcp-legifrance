@@ -11,6 +11,7 @@
 
 use std::future::Future;
 
+use crate::ports::JudicialOpenData;
 use crate::{
     audited::CallMeta,
     error::AppError,
@@ -23,8 +24,8 @@ use crate::{
 
 use super::LegalService;
 
-impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine, G: PublicGuidance>
-    LegalService<C, A, K, D, G>
+impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine, G: PublicGuidance, J: JudicialOpenData>
+    LegalService<C, A, K, D, G, J>
 {
     /// `fr_search_all` : recherche dans plusieurs fonds à la fois (05 §5.13), auditée sous
     /// `fr_search_all` (métrique : somme des résultats rendus).
