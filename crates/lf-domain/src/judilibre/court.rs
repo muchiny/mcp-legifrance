@@ -60,6 +60,30 @@ impl Court {
         Self::ALL.into_iter().find(|court| court.code().eq_ignore_ascii_case(raw))
     }
 
+    /// Juridiction lue dans une réponse de l'API : son code (`cc`), ou son intitulé générique
+    /// (« Cour de cassation »), que l'API rend avec `resolve_references=true` (V-241). L'intitulé
+    /// est comparé sans la casse ni les espaces de bord, l'apostrophe typographique valant
+    /// l'apostrophe droite. Les arguments d'un outil ne passent que par [`Court::parse`].
+    #[must_use]
+    pub fn parse_reply(raw: &str) -> Option<Self> {
+        let raw = raw.trim();
+        Self::parse(raw).or_else(|| {
+            Self::ALL.into_iter().find(|court| fold(raw).eq(fold(court.generic_label())))
+        })
+    }
+
+    /// Vrai si `seat`, siège reçu en clair, nomme un siège de cette juridiction : il commence par
+    /// son intitulé générique, suivi d'une espace ou de rien (« Tribunal judiciaire de Nîmes »),
+    /// ou, pour un tribunal de commerce, par « Tribunal des activités économiques » (« … de
+    /// Lyon », « … du Havre », relevés de V-241). Casse et apostrophe comme dans
+    /// [`Court::parse_reply`].
+    pub(super) fn names_a_seat(self, seat: &str) -> bool {
+        let renamed = (self == Self::Commercial).then_some(ECONOMIC_ACTIVITIES_COURT);
+        std::iter::once(self.generic_label())
+            .chain(renamed)
+            .any(|head| starts_with_words(seat, head))
+    }
+
     /// Rang dans [`Court::ALL`], qui sert de bit dans un [`CourtSet`].
     const fn bit(self) -> u8 {
         match self {
@@ -70,6 +94,21 @@ impl Court {
             Self::Labour => 0b1_0000,
         }
     }
+}
+
+/// Nom que portent certains tribunaux de commerce (`tcom`) dans les sièges que rend l'API.
+const ECONOMIC_ACTIVITIES_COURT: &str = "Tribunal des activités économiques";
+
+/// Intitulé ramené à une forme comparable, caractère par caractère : minuscules, apostrophe
+/// typographique (U+2019) remplacée par l'apostrophe droite.
+fn fold(label: &str) -> impl Iterator<Item = char> + '_ {
+    label.chars().map(|c| if c == '\u{2019}' { '\'' } else { c }).flat_map(char::to_lowercase)
+}
+
+/// Vrai si `text` commence par `head` (comparés par [`fold`]), suivi d'une espace ou de rien.
+fn starts_with_words(text: &str, head: &str) -> bool {
+    let mut text = fold(text);
+    fold(head).all(|c| text.next() == Some(c)) && matches!(text.next(), None | Some(' '))
 }
 
 impl fmt::Display for Court {
@@ -137,6 +176,22 @@ mod tests {
         }
         for raw in ["", "ce", "cass", "c c", "tc", "prud"] {
             assert_eq!(Court::parse(raw), None);
+        }
+    }
+
+    #[test]
+    fn a_reply_names_its_court_by_code_or_by_label() {
+        for court in Court::ALL {
+            assert_eq!(Court::parse_reply(court.code()), Some(court));
+            assert_eq!(Court::parse_reply(court.generic_label()), Some(court));
+            assert_eq!(Court::parse_reply(&court.generic_label().to_uppercase()), Some(court));
+            // Un intitulé n'est jamais un argument d'outil.
+            assert_eq!(Court::parse(court.generic_label()), None);
+        }
+        assert_eq!(Court::parse_reply(" Cour d’appel "), Some(Court::Appeal));
+        assert_eq!(Court::parse_reply("Conseil de prud’hommes"), Some(Court::Labour));
+        for raw in ["", "Cour", "Cour d'appel de Paris", "Tribunal des activités économiques"] {
+            assert_eq!(Court::parse_reply(raw), None, "{raw}");
         }
     }
 

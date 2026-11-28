@@ -752,7 +752,7 @@ mod judilibre {
     const OAUTH_TUNNEL: &str = "CONNECT sandbox-oauth.piste.gouv.fr:443 HTTP/1.1";
 
     /// Paramètres admis d'une recherche (ADR-0035, décision 3).
-    const SEARCH_PARAMS: [&str; 10] = [
+    const SEARCH_PARAMS: [&str; 11] = [
         "query",
         "operator",
         "field",
@@ -763,6 +763,7 @@ mod judilibre {
         "order",
         "page",
         "page_size",
+        "resolve_references",
     ];
 
     /// Une façon de couper la source.
@@ -947,7 +948,14 @@ mod judilibre {
                 search_pairs.contains(&("query".to_owned(), format!("{SENTINEL} donation"))),
                 "{log:?}: {search_pairs:?}"
             );
-            assert_eq!(pairs(3), [("id".to_owned(), DECISION.to_owned())], "{log:?}");
+            assert_eq!(
+                pairs(3),
+                [
+                    ("id".to_owned(), DECISION.to_owned()),
+                    ("resolve_references".to_owned(), "true".to_owned()),
+                ],
+                "{log:?}"
+            );
 
             let lines = audit_lines(audit.path());
             let audited: Vec<(&Value, &Value)> =

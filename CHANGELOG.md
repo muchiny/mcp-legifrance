@@ -15,7 +15,9 @@ Rubriques (`docs/plan/06-qualite.md` §13.3) : `Added`, `Changed`, `Deprecated`,
 
 ## [Unreleased]
 
-Rien depuis `1.6.0`.
+### Changed
+
+- Judilibre (V-241) : les deux outils demandent les intitulés en clair (`resolve_references=true`). Le siège de chaque décision est désormais nommé en entier pour toutes les juridictions (« Tribunal judiciaire de Nîmes », « Tribunal de commerce de Toulouse », « Tribunal des activités économiques de Paris ») ; jusqu'ici, seules la Cour de cassation et les 36 cours d'appel l'étaient, les autres sièges gardant leur code entre parenthèses (« Tribunal de commerce (3102) »). Un siège reçu en clair n'est gardé que s'il commence par l'intitulé de sa juridiction (ou par « Tribunal des activités économiques » pour un tribunal de commerce) ; sinon, il suit cet intitulé entre parenthèses, et la mention nomme toujours la juridiction reconnue. La juridiction se lit par son code ou par son intitulé, après le nettoyage des champs courts ; la table du domaine reste le secours d'une réponse codée. Les réponses de Judilibre grossissent d'environ 3,6 %. Aucun changement de description ni de schéma.
 
 ## [1.6.0] - 2026-11-28
 

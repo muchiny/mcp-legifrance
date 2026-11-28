@@ -1,11 +1,14 @@
 //! Correspondance des réponses de Judilibre vers le domaine (ADR-0035, décisions 4 à 6).
 //!
 //! Les codes deviennent des intitulés en clair (juridiction et siège, chambre, formation,
-//! publication, solution) ; les dates restent telles que publiées. Les balises HTML ne sont
-//! retirées que des intitulés (visas, rapprochements), des extraits et du sommaire : le texte de
-//! la décision reste tel quel, car les zones y pointent en unités UTF-16 (le cas d'usage le met
-//! en forme après la coupe). Tout autre champ est un champ court (`short_field`) : caractères
-//! invisibles retirés, blancs repliés.
+//! publication, solution) ; les dates restent telles que publiées. Depuis V-241, l'API les rend
+//! déjà en clair (`resolve_references=true`) : la juridiction, nettoyée comme un champ court, se
+//! lit par son code ou par son intitulé ([`Court::parse_reply`]), et un intitulé reçu est gardé
+//! (le siège, s'il commence par l'intitulé de sa juridiction : `court_label`). Les balises HTML
+//! ne sont retirées que des intitulés (visas, rapprochements), des extraits et du sommaire : le
+//! texte de la décision reste tel quel, car les zones y pointent en unités UTF-16 (le cas
+//! d'usage le met en forme après la coupe). Tout autre champ est un champ court
+//! (`short_field`) : caractères invisibles retirés, blancs repliés.
 //!
 //! Un résultat de recherche sans identifiant valide, sans juridiction connue ou sans date est
 //! écarté et compté (`dropped_hits`) ; la même lacune dans une décision est une erreur de
@@ -126,10 +129,10 @@ fn head(dto: &DecisionDto, endpoint: &'static str) -> Result<Head, CorpusError> 
         .as_deref()
         .and_then(|id| JudilibreId::parse(id).ok())
         .ok_or_else(|| Field { endpoint, path: "id" }.decode("invalid identifier"))?;
-    let jurisdiction =
-        dto.jurisdiction.as_deref().and_then(Court::parse).ok_or_else(|| {
-            Field { endpoint, path: "jurisdiction" }.decode("unknown jurisdiction")
-        })?;
+    let jurisdiction = trimmed(dto.jurisdiction.as_deref())
+        .as_deref()
+        .and_then(Court::parse_reply)
+        .ok_or_else(|| Field { endpoint, path: "jurisdiction" }.decode("unknown jurisdiction"))?;
     let date = trimmed(dto.decision_date.as_deref())
         .ok_or_else(|| Field { endpoint, path: "decision_date" }.decode("missing date"))?;
     let mention = CaseLawMention {
@@ -156,13 +159,13 @@ fn trimmed(text: Option<&str>) -> Option<String> {
     text.and_then(short_field)
 }
 
-/// Solution en clair : l'intitulé du code, sauf `other` (« Autre »), à qui la solution en clair
-/// (`solution_alt`) est préférée quand elle existe.
+/// Solution en clair : l'intitulé du code, sauf `other` (« Autre », son intitulé en clair), à qui
+/// la solution en clair (`solution_alt`) est préférée quand elle existe.
 fn solution(code: Option<&str>, alt: Option<&str>) -> Option<String> {
     let code = trimmed(code);
     let alt = trimmed(alt);
     match (code, alt) {
-        (Some(code), Some(alt)) if code == "other" => Some(alt),
+        (Some(code), Some(alt)) if code == "other" || code == solution_label("other") => Some(alt),
         (Some(code), _) => Some(solution_label(&code)),
         (None, alt) => alt,
     }
@@ -327,6 +330,52 @@ mod tests {
         assert_eq!(solution(Some("rejet"), Some("Confirme")).as_deref(), Some("Rejet"));
         assert_eq!(solution(None, Some("Irrecevabilité")).as_deref(), Some("Irrecevabilité"));
         assert_eq!(solution(Some(" "), None), None);
+        // L'intitulé en clair de `other`, que rend `resolve_references`.
+        assert_eq!(solution(Some("Autre"), Some("Confirme")).as_deref(), Some("Confirme"));
+        assert_eq!(solution(Some("Autre"), None).as_deref(), Some("Autre"));
+        assert_eq!(solution(Some("Cassation"), Some("Confirme")).as_deref(), Some("Cassation"));
+    }
+
+    #[test]
+    fn a_decision_read_in_plain_words_has_the_mentions_of_its_coded_reading() {
+        for (coded, resolved, requested) in [
+            ("decision-cc.json", "decision-cc-resolu.json", "5fca624b7eeb384a40cafb85"),
+            ("decision-ca.json", "decision-ca-resolu.json", "63c8eefddc5b777c90992fd8"),
+        ] {
+            let coded = doc_of(coded, requested).unwrap();
+            let resolved = doc_of(resolved, requested).unwrap();
+            assert_eq!(resolved.jurisdiction, coded.jurisdiction, "{requested}");
+            assert_eq!(resolved.mention, coded.mention, "{requested}");
+            assert_eq!(resolved.solution, coded.solution, "{requested}");
+            assert_eq!(resolved.publication, coded.publication, "{requested}");
+        }
+        let cassation = doc_of("decision-cc-resolu.json", "5fca624b7eeb384a40cafb85").unwrap();
+        assert_eq!(cassation.mention.chamber.as_deref(), Some("Première chambre civile"));
+        assert_eq!(cassation.publication.as_deref(), Some("Publié au Bulletin"));
+        let appeal = doc_of("decision-ca-resolu.json", "63c8eefddc5b777c90992fd8").unwrap();
+        assert_eq!(appeal.jurisdiction, Court::Appeal);
+        assert_eq!(appeal.mention.court, "Cour d'appel de Paris");
+    }
+
+    #[test]
+    fn a_search_in_plain_words_names_the_seat_of_every_court() {
+        let (page, diags) = page_of("search-resolu.json");
+        assert_eq!((page.hits.len(), diags.dropped_hits), (3, 0));
+        let seats: Vec<(Court, &str)> =
+            page.hits.iter().map(|hit| (hit.jurisdiction, hit.mention.court.as_str())).collect();
+        assert_eq!(
+            seats,
+            [
+                (Court::Commercial, "Tribunal de commerce de Toulouse"),
+                (Court::Commercial, "Tribunal des activités économiques de Paris"),
+                (Court::Judicial, "Tribunal judiciaire de Nîmes"),
+            ]
+        );
+        assert_eq!(page.hits[1].mention.chamber.as_deref(), Some("Référé mardi salle 3"));
+        assert_eq!(
+            page.hits[2].solution.as_deref(),
+            Some("Désigne un expert ou un autre technicien")
+        );
     }
 
     #[test]
@@ -466,8 +515,10 @@ mod tests {
     #[test]
     fn invisible_characters_are_removed_from_every_short_field() {
         // Un tag Unicode, un contrôle bidirectionnel et une espace de largeur nulle dans chaque
-        // champ court ; un saut de ligne au milieu.
-        let raw = r#"{"id":"5fca624b7eeb384a40cafb85","jurisdiction":"ca","location":"ca_paris\u200b",
+        // champ court ; un saut de ligne au milieu ; une juridiction en clair, avec une espace
+        // insécable et une apostrophe typographique.
+        let raw = r#"{"id":"5fca624b7eeb384a40cafb85","jurisdiction":"Cour\u00a0d\u2019appel\u200b",
+            "location":"ca_paris\u200b",
             "decision_date":"2024-05-02\u202e","number":"21/\udb40\udc4101234","ecli":"ECLI:FR\u2066",
             "chamber":"P\u00f4le 3\n- Chambre 1\u200b","formation":"f\u202e","solution":"other",
             "solution_alt":"Infirme\u200b","themes":["Bail\u202e","\u200b"],"text":"abc",

@@ -6,7 +6,9 @@
 //! ni recopiée dans une erreur (`http::Attempt` la tait, `classify` ne cite que le gabarit).
 //!
 //! Jamais envoyés : `chamber`, `formation`, `location`, `theme`, `withFileOfType` ; aucun filtre ne
-//! permet d'étudier un juge (ADR-0035, décision 7). `resolve_references` attend V-241.
+//! permet d'étudier un juge (ADR-0035, décision 7). `resolve_references=true` accompagne chaque
+//! requête depuis V-241 (2026-11-28) : l'API rend alors en clair la juridiction, le siège, la
+//! chambre, la formation, la publication et la solution, sans rien changer d'autre.
 
 use lf_domain::judilibre::{CaseLawQuery, CaseLawSort, JudilibreId};
 use lf_domain::search::MatchMode;
@@ -20,7 +22,7 @@ pub(crate) const DECISION: &str = "/cassation/judilibre/v1.0/decision";
 
 /// Noms des paramètres d'une recherche, seuls admis sur [`SEARCH`].
 #[cfg(test)]
-pub(crate) const SEARCH_PARAMS: [&str; 10] = [
+pub(crate) const SEARCH_PARAMS: [&str; 11] = [
     "query",
     "operator",
     "field",
@@ -31,11 +33,12 @@ pub(crate) const SEARCH_PARAMS: [&str; 10] = [
     "order",
     "page",
     "page_size",
+    "resolve_references",
 ];
 
 /// Noms des paramètres d'une lecture, seuls admis sur [`DECISION`].
 #[cfg(test)]
-pub(crate) const DECISION_PARAMS: [&str; 1] = ["id"];
+pub(crate) const DECISION_PARAMS: [&str; 2] = ["id", "resolve_references"];
 
 /// Un paramètre de l'adresse : nom fixe, valeur tirée d'une valeur typée.
 pub(crate) type Param = (&'static str, String);
@@ -66,12 +69,19 @@ pub(crate) fn search_params(query: &CaseLawQuery) -> Vec<Param> {
     }
     params.push(("page", query.page().get().saturating_sub(1).to_string()));
     params.push(("page_size", query.page_size().get().to_string()));
+    params.push(resolve_references());
     params
 }
 
-/// Paramètres de la lecture d'une décision : son identifiant seul.
+/// Paramètres de la lecture d'une décision : son identifiant, et les intitulés en clair.
 pub(crate) fn decision_params(id: &JudilibreId) -> Vec<Param> {
-    vec![("id", id.as_str().to_owned())]
+    vec![("id", id.as_str().to_owned()), resolve_references()]
+}
+
+/// `resolve_references=true`, dernier paramètre de chaque requête : les intitulés en clair
+/// (V-241).
+fn resolve_references() -> Param {
+    ("resolve_references", "true".to_owned())
 }
 
 /// Valeur de `operator` : `or` (un des mots), `and` (tous) ou `exact` (expression exacte).
@@ -153,6 +163,7 @@ mod tests {
                 ("sort", "scorepub"),
                 ("page", "0"),
                 ("page_size", "10"),
+                ("resolve_references", "true"),
             ]
         );
     }
@@ -181,6 +192,7 @@ mod tests {
                 ("order", "desc"),
                 ("page", "2"),
                 ("page_size", "50"),
+                ("resolve_references", "true"),
             ]
         );
         let any =
@@ -201,7 +213,10 @@ mod tests {
         }
         let id = JudilibreId::parse("5fca624b7eeb384a40cafb85").unwrap();
         let params = decision_params(&id);
-        assert_eq!(shown(&params), [("id", "5fca624b7eeb384a40cafb85")]);
+        assert_eq!(
+            shown(&params),
+            [("id", "5fca624b7eeb384a40cafb85"), ("resolve_references", "true")]
+        );
         assert!(params.iter().all(|(name, _)| DECISION_PARAMS.contains(name)));
     }
 

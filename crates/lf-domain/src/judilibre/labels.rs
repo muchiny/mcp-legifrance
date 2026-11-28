@@ -5,6 +5,11 @@
 //! (`Cour-de-cassation/judilibre-search` @ `f773a6b`, `src/taxons/chamber.js`, `formation.js`,
 //! `publication.js`, `solution.js` et `ca/location.js`) : la Cour de cassation et les 36 cours
 //! d'appel. Un code absent des tables se rend tel quel, jamais inventé.
+//!
+//! Depuis V-241 (2026-11-28), l'API rend ces champs en clair (`resolve_references=true`) : un
+//! intitulé reçu n'est dans aucune table et passe donc tel quel ; un siège ne l'est que s'il
+//! commence par l'intitulé de sa juridiction ([`court_label`]). Les tables restent le secours
+//! d'une réponse codée.
 
 use super::Court;
 
@@ -107,24 +112,29 @@ fn label_in(table: &[(&str, &'static str)], code: &str) -> Option<&'static str> 
 }
 
 /// Intitulé de la juridiction et de son siège : « Cour de cassation », « Cour d'appel de
-/// Paris ». Le siège d'une cour d'appel vient de la table ; celui d'une autre juridiction n'a
-/// pas d'intitulé connu, et son code est ajouté entre parenthèses (« Tribunal judiciaire
-/// (tj75056) »). Sans siège, l'intitulé générique de la juridiction.
+/// Paris ». Un siège reçu en clair, comme l'API le rend avec `resolve_references=true` (V-241),
+/// est gardé tel quel s'il commence par l'intitulé de sa juridiction (« Tribunal de commerce de
+/// Toulouse » ; « Tribunal des activités économiques de Paris » pour un tribunal de commerce).
+/// Sinon, un code de cour d'appel passe par la table, et toute autre valeur suit l'intitulé
+/// générique, entre parenthèses (« Tribunal judiciaire (tj75056) ») : la mention nomme toujours
+/// la juridiction reconnue. Sans siège, l'intitulé générique.
 #[must_use]
 pub fn court_label(court: Court, location: Option<&str>) -> String {
-    let location = location.map(str::trim).filter(|code| !code.is_empty());
+    let location = location.map(str::trim).filter(|seat| !seat.is_empty());
     match (court, location) {
         (Court::Cassation, _) | (_, None) => court.generic_label().to_owned(),
+        (_, Some(seat)) if court.names_a_seat(seat) => seat.to_owned(),
         (Court::Appeal, Some(code)) => {
             label_in(&APPEAL_COURTS, code).map_or_else(|| with_code(court, code), str::to_owned)
         }
-        (_, Some(code)) => with_code(court, code),
+        (_, Some(seat)) => with_code(court, seat),
     }
 }
 
-/// Intitulé générique suivi du code du siège entre parenthèses.
-fn with_code(court: Court, code: &str) -> String {
-    format!("{} ({code})", court.generic_label())
+/// Intitulé générique suivi du siège reçu (un code, ou un intitulé d'une autre juridiction)
+/// entre parenthèses.
+fn with_code(court: Court, seat: &str) -> String {
+    format!("{} ({seat})", court.generic_label())
 }
 
 /// Intitulé d'une chambre : la table pour la Cour de cassation (`civ1` → « Première chambre
@@ -173,6 +183,46 @@ mod tests {
         assert_eq!(court_label(Court::Appeal, Some("  ")), "Cour d'appel");
         assert_eq!(court_label(Court::Judicial, Some("tj75056")), "Tribunal judiciaire (tj75056)");
         assert_eq!(court_label(Court::Labour, None), "Conseil de prud'hommes");
+    }
+
+    #[test]
+    fn a_seat_received_in_plain_words_is_kept() {
+        let kept = [
+            (Court::Appeal, "Cour d'appel de Paris"),
+            (Court::Appeal, "cour d’appel de Fort-de-France"),
+            (Court::Judicial, "Tribunal judiciaire d'Évreux"),
+            (Court::Judicial, "Tribunal judiciaire"),
+            (Court::Commercial, "Tribunal de commerce de Toulouse"),
+            (Court::Commercial, "Tribunal des activités économiques du Havre"),
+            (Court::Labour, "Conseil de prud'hommes de Lyon"),
+        ];
+        for (court, seat) in kept {
+            assert_eq!(court_label(court, Some(seat)), seat);
+        }
+        assert_eq!(
+            court_label(Court::Judicial, Some(" Tribunal judiciaire de Nîmes ")),
+            "Tribunal judiciaire de Nîmes"
+        );
+        assert_eq!(
+            court_label(Court::Cassation, Some("Cour de cassation de Paris")),
+            "Cour de cassation"
+        );
+        // Tout autre siège suit l'intitulé de la juridiction reconnue : une mention ne peut pas
+        // prêter à une décision une autre juridiction que la sienne.
+        let wrapped = [
+            (Court::Labour, "CPH"),
+            (Court::Judicial, "tj2A004"),
+            (Court::Commercial, "3102"),
+            (Court::Judicial, "T"),
+            (Court::Judicial, "Tribunal judiciaireX"),
+            (Court::Judicial, "Tribunal des activités économiques de Paris"),
+            (Court::Judicial, "Cour de cassation, Assemblée plénière"),
+            (Court::Appeal, "Tribunal judiciaire de Nîmes"),
+        ];
+        for (court, seat) in wrapped {
+            let generic = court.generic_label();
+            assert_eq!(court_label(court, Some(seat)), format!("{generic} ({seat})"));
+        }
     }
 
     #[test]
