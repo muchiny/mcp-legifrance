@@ -42,6 +42,8 @@ pub(crate) enum Payload<'a> {
     Json(&'a [u8]),
     /// Paires d'un formulaire `application/x-www-form-urlencoded`.
     Form(&'a [(&'a str, &'a str)]),
+    /// Aucun corps : la requête part en `GET`, ses paramètres déjà dans l'URL (Judilibre).
+    Get,
 }
 
 /// Une tentative d'envoi : tout ce que `send_once` doit savoir.
@@ -94,6 +96,7 @@ impl fmt::Debug for Payload<'_> {
                 .debug_struct("Form")
                 .field("fields", &pairs.iter().map(|(name, _)| *name).collect::<Vec<_>>())
                 .finish(),
+            Self::Get => f.write_str("Get"),
         }
     }
 }
@@ -295,16 +298,19 @@ pub(crate) async fn send_once(
     Ok(RawResponse { status, retry_after, date, content_type, content_encoding, body })
 }
 
-/// Requête de `attempt`. `RequestBuilder::timeout` remplace le délai du client, même
-/// plus long : le délai effectif est toujours `Attempt::timeout`.
+/// Requête de `attempt` : un `POST` avec son corps, ou un `GET` sans corps.
+/// `RequestBuilder::timeout` remplace le délai du client, même plus long : le délai effectif est
+/// toujours `Attempt::timeout`.
 fn request_builder(client: &Client, attempt: &Attempt<'_>) -> RequestBuilder {
-    let builder = client.post(attempt.url.clone()).timeout(attempt.timeout);
+    let url = attempt.url.clone();
     let builder = match attempt.payload {
         Payload::Json(bytes) => {
-            builder.header(CONTENT_TYPE, "application/json").body(bytes.to_vec())
+            client.post(url).header(CONTENT_TYPE, "application/json").body(bytes.to_vec())
         }
-        Payload::Form(pairs) => builder.form(pairs),
+        Payload::Form(pairs) => client.post(url).form(pairs),
+        Payload::Get => client.get(url),
     };
+    let builder = builder.timeout(attempt.timeout);
     match attempt.bearer {
         // Seul `expose_secret()` de ce fichier ; reqwest marque l'en-tête comme sensible.
         Some(token) => builder.bearer_auth(token.expose_secret()),
@@ -430,6 +436,7 @@ mod tests {
     use tokio::net::{TcpListener, TcpStream};
     use wiremock::matchers::{
         any, body_bytes, body_string, header, header_exists, header_regex, method, path,
+        query_param,
     };
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -851,6 +858,34 @@ mod tests {
         assert_eq!(send_once(&client, &without).await.unwrap().status, 204);
     }
 
+    /// Un `GET` part sans corps ni `Content-Type`, avec son jeton et les paramètres de son URL.
+    #[tokio::test]
+    async fn a_get_has_no_body_and_keeps_its_query() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/cassation/judilibre/v1.0/search"))
+            .and(query_param("query", "bail commercial"))
+            .and(header("authorization", "Bearer tok-123"))
+            .respond_with(ResponseTemplate::new(200))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let client = client_for_uri(&server.uri());
+        let token = SecretString::from("tok-123");
+        let mut url = url_of(&server.uri(), "/cassation/judilibre/v1.0/search");
+        url.query_pairs_mut().append_pair("query", "bail commercial");
+        let mut get = attempt(&url, Payload::Get);
+        get.bearer = Some(&token);
+        assert_eq!(send_once(&client, &get).await.unwrap().status, 200);
+        let requests = server.received_requests().await.unwrap();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].body, Vec::<u8>::new());
+        assert!(!requests[0].headers.contains_key("content-type"));
+        let built = request_builder(&client, &get).build().unwrap();
+        assert_eq!(built.method(), reqwest::Method::GET);
+        assert_eq!(built.timeout(), Some(&get.timeout));
+    }
+
     #[test]
     fn bearer_header_is_sensitive() {
         let client = client_for_uri("http://127.0.0.1:1");
@@ -1197,6 +1232,7 @@ mod tests {
         request.bearer = Some(&token);
         let json = Payload::Json(br#"{"q":"json-visible"}"#);
         assert_eq!(format!("{json:?}"), "Json { bytes: 20 }");
+        assert_eq!(format!("{:?}", Payload::Get), "Get");
         assert_eq!(
             format!("{:?}", request.payload),
             r#"Form { fields: ["client_id", "client_secret"] }"#

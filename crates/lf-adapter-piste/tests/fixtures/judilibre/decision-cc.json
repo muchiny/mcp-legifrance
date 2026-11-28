@@ -1,0 +1,162 @@
+{
+ "id": "5fca624b7eeb384a40cafb85",
+ "source": "jurinet",
+ "text": "CIV. 1\n\nCOUR DE CASSATION\n\nAudience publique du 20 novembre 2019\n\nCassation partielle\n\nArrêt n° 963 FS-P+B+I\n\nPourvoi n° C 16-15.867\nFaits et procédure\n\n1. Selon l'arrêt attaqué, des contrats d'assurance sur la vie ont été souscrits pendant le mariage.\n\nExamen des moyens\n\nSur le premier moyen\n\n2. L'épouse fait grief à l'arrêt de requalifier les contrats en donations indirectes.\n\nRéponse de la Cour\n\nVu l'article L. 132-9 du code des assurances :\n\n3. La donation suppose un dépouillement irrévocable.\n\nSur le second moyen\n\n4. En se déterminant ainsi, la cour d'appel a privé sa décision de base légale.\n\nPAR CES MOTIFS, la Cour :\n\nCASSE ET ANNULE, mais seulement en ce qu'il requalifie les contrats, l'arrêt rendu le 27 janvier 2016.\n\nMOYENS ANNEXÉS au présent arrêt\n\nPremier moyen de cassation : l'arrêt attaqué encourt la censure.",
+ "chamber": "civ1",
+ "decision_date": "2019-11-20",
+ "decision_datetime": "2019-11-19T23:00:00.000Z",
+ "ecli": "ECLI:FR:CCASS:2019:C100963",
+ "jurisdiction": "cc",
+ "number": "16-15.867",
+ "numbers": [
+  "16-15.867"
+ ],
+ "publication": [
+  "b"
+ ],
+ "solution": "cassation",
+ "type": "other",
+ "formation": "fs",
+ "update_date": "2024-02-28",
+ "update_datetime": "2024-02-28T18:26:43.576Z",
+ "summary": "Un époux commun en bien ne peut librement disposer, sans l'accord de l'autre, de ses gains et salaires une fois ceux-ci économisés",
+ "themes": [
+  "regimes matrimoniaux",
+  "communauté entre époux",
+  "actif",
+  "disposition",
+  "biens de la communauté",
+  "donation",
+  "conditions",
+  "consentement de l'autre époux",
+  "nécessité",
+  "cas",
+  "sommes provenant de gains et salaires économisés"
+ ],
+ "nac": null,
+ "portalis": null,
+ "files": [],
+ "zones": {
+  "introduction": [
+   {
+    "start": 0,
+    "end": 132
+   }
+  ],
+  "expose": [
+   {
+    "start": 133,
+    "end": 252
+   }
+  ],
+  "moyens": [
+   {
+    "start": 252,
+    "end": 380
+   },
+   {
+    "start": 502,
+    "end": 523
+   }
+  ],
+  "motivations": [
+   {
+    "start": 380,
+    "end": 502
+   },
+   {
+    "start": 523,
+    "end": 604
+   }
+  ],
+  "dispositif": [
+   {
+    "start": 606,
+    "end": 735
+   }
+  ],
+  "annexes": [
+   {
+    "start": 735,
+    "end": 835
+   }
+  ]
+ },
+ "contested": {
+  "date": "2016-01-27",
+  "title": "Cour d'appel de Paris\nE1",
+  "jurisdiction": "Cour d'appel de Paris",
+  "chamber": "E1",
+  "solution": "Infirme partiellement, réforme ou modifie certaines dispositions de la décision déférée",
+  "number": "14/25386"
+ },
+ "forward": null,
+ "timeline": [
+  {
+   "date": "2016-01-27",
+   "title": "Cour d'appel de Paris\nE1",
+   "jurisdiction": "Cour d'appel de Paris",
+   "chamber": "E1",
+   "solution": "Infirme partiellement, réforme ou modifie certaines dispositions de la décision déférée",
+   "number": "14/25386"
+  },
+  {
+   "date": "2019-11-20",
+   "title": "Cour de cassation\nPremière chambre civile",
+   "jurisdiction": "Cour de cassation",
+   "chamber": "Première chambre civile",
+   "solution": "Cassation",
+   "number": "C1615867"
+  }
+ ],
+ "partial": false,
+ "visa": [
+  {
+   "title": "Article L. <a href=\"https://www.legifrance.gouv.fr/search/code?tab_selection=code&searchField=ALL&query=132-9+code+des+assurances&page=1&init=true\" target=\"_blank\">132-9</a> du code des assurances, dans sa rédaction antérieure à celle issue de la loi n° 2007-1775 du 17 décembre 2007,."
+  },
+  {
+   "title": "Article L. 132-21 du même code."
+  },
+  {
+   "title": "Article <a href=\"https://www.legifrance.gouv.fr/search/code?tab_selection=code&searchField=ALL&query=894+code+civil&page=1&init=true\" target=\"_blank\">894</a> du code civil."
+  }
+ ],
+ "rapprochements": [
+  {
+   "title": "1re Civ., 22 octobre 1980, pourvoi n° <a href=\"60794bf99ba5988459c445e1\">79-14.138</a>, Bull. 1980, I, n° 267 (rejet)."
+  },
+  {
+   "title": "1re Civ., 29 février 1984, pourvoi n° <a href=\"60794b669ba5988459c42e6c\">82-15.712</a>, Bull. 1984, I, n° 81 (rejet)."
+  }
+ ],
+ "legacy": {},
+ "titlesAndSummaries": [
+  {
+   "titles": [
+    "REGIMES MATRIMONIAUX",
+    "Communauté entre époux",
+    "Actif",
+    "Disposition",
+    "Biens de la communauté",
+    "Donation",
+    "Conditions",
+    "Consentement de l'autre époux",
+    "Nécessité",
+    "Cas",
+    "Sommes provenant de gains et salaires économisés"
+   ],
+   "summary": "Un époux commun en bien ne peut librement disposer, sans l'accord de l'autre, de ses gains et salaires une fois ceux-ci économisés",
+   "secondaryTitles": [
+    [
+     "MARIAGE",
+     "Devoirs et droits respectifs des époux",
+     "Pouvoirs de chaque époux sur ses gains et salaires",
+     "Etendue",
+     "Détermination",
+     "Portée"
+    ]
+   ]
+  }
+ ],
+ "particularInterest": false
+}

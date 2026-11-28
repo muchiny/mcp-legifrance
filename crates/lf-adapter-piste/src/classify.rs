@@ -87,6 +87,20 @@ pub(crate) enum EndpointKind {
     /// Endpoint du jeton : jamais [`CorpusError::NotFound`], son corps d'erreur est traité par
     /// `auth.rs`.
     Token,
+    /// Recherche de Judilibre (`GET /search`) : comme [`EndpointKind::Search`], et le corps d'un
+    /// 400 n'est jamais lu, car l'adresse porte les mots cherchés (ADR-0035, décision 9).
+    CaseLawSearch,
+    /// Lecture d'une décision de Judilibre (`GET /decision`) : un 404 de l'hôte officiel hors
+    /// page HTML prouve l'absence, comme pour [`EndpointKind::Consult`] ; le corps d'un 400 n'est
+    /// jamais lu, et un 2xx vide est une erreur de décodage.
+    CaseLawDecision,
+}
+
+impl EndpointKind {
+    /// Vrai pour une requête de Judilibre.
+    const fn is_case_law(self) -> bool {
+        matches!(self, Self::CaseLawSearch | Self::CaseLawDecision)
+    }
 }
 
 impl EndpointKind {
@@ -95,7 +109,9 @@ impl EndpointKind {
     fn auth_origin(self) -> AuthOrigin {
         match self {
             Self::Token => AuthOrigin::Token,
-            Self::Search | Self::Consult => AuthOrigin::Api,
+            Self::Search | Self::Consult | Self::CaseLawSearch | Self::CaseLawDecision => {
+                AuthOrigin::Api
+            }
         }
     }
 
@@ -104,7 +120,9 @@ impl EndpointKind {
     fn endpoint_problem(self) -> ConfigKind {
         match self {
             Self::Token => ConfigKind::OAuthEndpoint,
-            Self::Search | Self::Consult => ConfigKind::ApiEndpoint,
+            Self::Search | Self::Consult | Self::CaseLawSearch | Self::CaseLawDecision => {
+                ConfigKind::ApiEndpoint
+            }
         }
     }
 }
@@ -247,7 +265,10 @@ fn classify_success(
         (EndpointKind::Consult, true) => {
             Outcome::Fatal(CorpusError::NotFound { what: endpoint.to_owned() })
         }
-        (EndpointKind::Search, true) => Outcome::Fatal(CorpusError::Decode {
+        (
+            EndpointKind::Search | EndpointKind::CaseLawSearch | EndpointKind::CaseLawDecision,
+            true,
+        ) => Outcome::Fatal(CorpusError::Decode {
             detail: format!("empty response body on {endpoint}"),
         }),
         _ => Outcome::Success(response),
@@ -257,7 +278,7 @@ fn classify_success(
 /// Erreur d'un 400 : pour une consultation, `NotFound` si le message désigne un identifiant
 /// inconnu, sinon `InvalidRequest` dont le détail est le message PISTE nettoyé, privé des
 /// secrets et borné, ou le gabarit `HTTP 400 on {endpoint}` si le corps n'en livre aucun. Pour
-/// une recherche, le détail est **toujours** ce gabarit.
+/// une recherche ou une requête de Judilibre, le détail est **toujours** ce gabarit.
 ///
 /// Le message d'un 400 de recherche peut citer le texte de la requête (04 §12.4, §12.5), et le
 /// `detail` va aux journaux et à l'audit de l'application : il n'est donc ni lu ni recopié. Le
@@ -270,7 +291,10 @@ fn bad_request(response: &RawResponse, endpoint: &str, context: &ErrorContext<'_
         EndpointKind::Consult => {
             error_body::message(&response.body, endpoint, context.repair_mojibake)
         }
-        EndpointKind::Search | EndpointKind::Token => None,
+        EndpointKind::Search
+        | EndpointKind::Token
+        | EndpointKind::CaseLawSearch
+        | EndpointKind::CaseLawDecision => None,
     };
     // Le marqueur se cherche dans le texte brut complet, avant nettoyage, retrait et coupure.
     if message.as_deref().is_some_and(|raw| error_body::is_not_found(endpoint, raw)) {
@@ -280,7 +304,7 @@ fn bad_request(response: &RawResponse, endpoint: &str, context: &ErrorContext<'_
         .map(|raw| error_body::clean_detail(&raw, context.secrets))
         .filter(|text| !text.is_empty())
         .unwrap_or_else(|| format!("HTTP 400 on {endpoint}"));
-    if context.kind == EndpointKind::Search {
+    if context.kind == EndpointKind::Search || context.kind.is_case_law() {
         // 04 §12.5 : le texte de la requête n'est journalisé à aucun niveau, et le message PISTE
         // d'un 400 de recherche peut le citer ; le journal n'en porte rien.
         tracing::warn!(
@@ -298,11 +322,11 @@ fn bad_request(response: &RawResponse, endpoint: &str, context: &ErrorContext<'_
     CorpusError::InvalidRequest { status: Some(400), detail }
 }
 
-/// Un 404 prouve l'absence d'une ressource seulement pour une consultation, sur l'hôte officiel
-/// et avec un corps qui n'est pas une page HTML (passerelle, proxy) : sinon c'est une erreur de
-/// configuration.
+/// Un 404 prouve l'absence d'une ressource seulement pour une consultation ou une décision de
+/// Judilibre, sur l'hôte officiel et avec un corps qui n'est pas une page HTML (passerelle,
+/// proxy) : sinon c'est une erreur de configuration.
 fn proves_absence(response: &RawResponse, context: &ErrorContext<'_>) -> bool {
-    context.kind == EndpointKind::Consult
+    matches!(context.kind, EndpointKind::Consult | EndpointKind::CaseLawDecision)
         && context.official_host
         && !error_body::looks_like_html(&response.body)
 }
@@ -740,6 +764,87 @@ mod tests {
         }
         assert!(!log.contains("texte-secret-42"), "{log:?}");
         assert!(!log.contains("detail"), "{log:?}");
+    }
+
+    /// Judilibre (ADR-0035, décision 9) : le corps d'un 400 n'est jamais lu, ni journalisé, car
+    /// l'adresse porte les mots cherchés ; un 404 ne prouve l'absence que pour une décision.
+    #[test]
+    fn case_law_requests_never_read_a_400_body() {
+        let search = ErrorContext { kind: EndpointKind::CaseLawSearch, ..OFFICIAL };
+        let decision = ErrorContext { kind: EndpointKind::CaseLawDecision, ..OFFICIAL };
+        for (context, endpoint) in [
+            (search, "/cassation/judilibre/v1.0/search"),
+            (decision, "/cassation/judilibre/v1.0/decision"),
+        ] {
+            let (capture, _guard) = capture_at(tracing::Level::TRACE);
+            let rejected = piste_error(400, "Unknown value texte-secret-42 in query");
+            assert_eq!(
+                classify(Ok(rejected), endpoint, &context),
+                fatal(invalid(&format!("HTTP 400 on {endpoint}")))
+            );
+            let log = capture.text();
+            assert!(log.contains("probable bug") && log.contains("status=400"), "{log:?}");
+            assert!(!log.contains("texte-secret-42") && !log.contains("detail"), "{log:?}");
+            assert_eq!(
+                classify(Ok(with_body(200, " ")), endpoint, &context),
+                fatal(CorpusError::Decode { detail: format!("empty response body on {endpoint}") })
+            );
+            for status in [401, 403] {
+                let refused = CorpusError::Auth {
+                    origin: AuthOrigin::Api,
+                    status: Some(status),
+                    detail: format!("HTTP {status} on {endpoint}"),
+                };
+                let outcome = classify(Ok(response(status)), endpoint, &context);
+                let expected =
+                    if status == 401 { Outcome::Unauthorized(refused) } else { fatal(refused) };
+                assert_eq!(outcome, expected);
+            }
+            for status in [416, 423] {
+                assert_eq!(
+                    classify(Ok(response(status)), endpoint, &context),
+                    fatal(CorpusError::Upstream {
+                        status: Some(status),
+                        retryable: false,
+                        detail: format!("HTTP {status} on {endpoint}"),
+                    })
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn only_a_case_law_decision_404_of_the_official_host_proves_absence() {
+        let endpoint = "/cassation/judilibre/v1.0/decision";
+        let decision = ErrorContext { kind: EndpointKind::CaseLawDecision, ..OFFICIAL };
+        let missing = r#"{"route":"GET /decision","errors":[{"msg":"Not Found"}]}"#;
+        assert_eq!(
+            classify(Ok(with_body(404, missing)), endpoint, &decision),
+            fatal(CorpusError::NotFound { what: endpoint.to_owned() })
+        );
+        let misrouted = CorpusError::Config {
+            kind: ConfigKind::ApiEndpoint,
+            detail: format!("HTTP 404 on {endpoint}"),
+        };
+        let custom = ErrorContext { official_host: false, ..decision };
+        assert_eq!(
+            classify(Ok(with_body(404, missing)), endpoint, &custom),
+            fatal(misrouted.clone())
+        );
+        let page = "<html><body>Not Found</body></html>";
+        assert_eq!(
+            classify(Ok(with_body(404, page)), endpoint, &decision),
+            fatal(misrouted.clone())
+        );
+        let search = ErrorContext { kind: EndpointKind::CaseLawSearch, ..OFFICIAL };
+        let search_endpoint = "/cassation/judilibre/v1.0/search";
+        assert_eq!(
+            classify(Ok(with_body(404, missing)), search_endpoint, &search),
+            fatal(CorpusError::Config {
+                kind: ConfigKind::ApiEndpoint,
+                detail: format!("HTTP 404 on {search_endpoint}"),
+            })
+        );
     }
 
     #[test]

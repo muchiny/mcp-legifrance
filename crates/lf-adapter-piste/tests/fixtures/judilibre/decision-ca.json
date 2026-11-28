@@ -1,0 +1,66 @@
+{
+ "id": "63c8eefddc5b777c90992fd8",
+ "source": "jurica",
+ "text": "RÉPUBLIQUE FRANÇAISE\n\nAU NOM DU PEUPLE FRANÇAIS\n\nCOUR D'APPEL DE PARIS\n\nPôle 3 - Chambre 1\n\nARRÊT DU 18 JANVIER 2023\n\nN° RG 20/17369\n\nEXPOSÉ DU LITIGE\n\nUne donation de la nue-propriété d'un immeuble a été consentie avec réserve d'usufruit.\n\nMOTIFS DE LA DÉCISION\n\nLa réserve d'usufruit n'est pas fictive dès lors que le donateur a occupé le bien.\n\nPAR CES MOTIFS, LA COUR,\n\nConfirme le jugement en toutes ses dispositions ;\n\nCondamne l'appelante aux dépens d'appel.",
+ "chamber": "Pôle 3 - Chambre 1",
+ "decision_date": "2023-01-18",
+ "decision_datetime": "2023-01-17T23:00:00.000Z",
+ "jurisdiction": "ca",
+ "number": "20/17369",
+ "numbers": [
+  "20/17369"
+ ],
+ "publication": [],
+ "solution": "other",
+ "solution_alt": "Confirme la décision déférée dans toutes ses dispositions, à l'égard de toutes les parties au recours",
+ "type": "arret",
+ "location": "ca_paris",
+ "update_date": "2023-01-23",
+ "update_datetime": "2023-01-22T23:00:00.000Z",
+ "themes": [
+  "Demande en partage, ou contestations relatives au partage"
+ ],
+ "nac": "28A",
+ "portalis": null,
+ "files": [],
+ "zones": {
+  "introduction": [
+   {
+    "start": 0,
+    "end": 132
+   }
+  ],
+  "expose": [
+   {
+    "start": 132,
+    "end": 239
+   }
+  ],
+  "motivations": [
+   {
+    "start": 239,
+    "end": 346
+   }
+  ],
+  "dispositif": [
+   {
+    "start": 346,
+    "end": 466
+   }
+  ]
+ },
+ "contested": null,
+ "forward": null,
+ "timeline": null,
+ "partial": false,
+ "visa": [],
+ "rapprochements": [],
+ "legacy": {
+  "selection": 0,
+  "matiereDeterminee": 0,
+  "pourvoiLocal": 0,
+  "pourvoiCcas": 0
+ },
+ "titlesAndSummaries": [],
+ "particularInterest": false
+}

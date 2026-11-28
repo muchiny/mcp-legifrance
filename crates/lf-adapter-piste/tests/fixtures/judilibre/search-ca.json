@@ -1,0 +1,68 @@
+{
+ "page": 0,
+ "page_size": 10,
+ "total": 58,
+ "took": 82,
+ "max_score": 21.282679,
+ "relaxed": false,
+ "results": [
+  {
+   "score": 1,
+   "highlights": {
+    "text": [
+     "Elle estime que sans nécessairement capitaliser les droits démembrés <em>d'usufruit</em> et de <em>nue</em>-<em>propriété</em> du",
+     "sur <em>l'usufruit</em> de la <em>réserve</em> (non réductible puisque rentrant dans les quotités disponibles spéciales"
+    ]
+   },
+   "id": "63c8eefddc5b777c90992fd8",
+   "jurisdiction": "ca",
+   "chamber": "Pôle 3 - Chambre 1",
+   "number": "20/17369",
+   "numbers": [
+    "20/17369"
+   ],
+   "location": "ca_paris",
+   "publication": [],
+   "decision_date": "2023-01-18",
+   "solution": "other",
+   "solution_alt": "Confirme la décision déférée dans toutes ses dispositions, à l'égard de toutes les parties au recours",
+   "type": "arret",
+   "themes": [
+    "Demande en partage, ou contestations relatives au partage"
+   ],
+   "files": [],
+   "titlesAndSummaries": [],
+   "particularInterest": false
+  },
+  {
+   "score": 0.9548334117147563,
+   "highlights": {
+    "text": [
+     "A] [S] lui apportait la <em>nue</em>-<em>propriété</em> d'une maison d'habitation située à [Adresse 34]'; la pleine-<em>propriété</em>",
+     "A] [S] et Mme [W] [N] veuve [S] lui apportaient également la <em>nue</em>-<em>propriété</em> d'un appartement dont ils"
+    ]
+   },
+   "id": "693a933b3e607b3c21156261",
+   "jurisdiction": "ca",
+   "chamber": "Pôle 3 - Chambre 1",
+   "number": "23/15162",
+   "numbers": [
+    "23/15162"
+   ],
+   "location": "ca_paris",
+   "publication": [],
+   "decision_date": "2025-12-10",
+   "solution": "other",
+   "solution_alt": "Infirme partiellement, réforme ou modifie certaines dispositions de la décision déférée",
+   "type": "arret",
+   "themes": [
+    "Droit de la famille",
+    "Partage, indivision, succession",
+    "Demande en partage, ou contestations relatives au partage"
+   ],
+   "files": [],
+   "titlesAndSummaries": [],
+   "particularInterest": false
+  }
+ ]
+}

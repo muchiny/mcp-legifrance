@@ -39,9 +39,12 @@ use crate::retry::{RetryContext, SystemJitter, run};
 use crate::stats::{Stats, StatsSnapshot};
 use crate::time::{MonoClock, Sleeper, TokioClock, TokioSleeper};
 
+mod judilibre;
 mod m6;
 mod m7;
 mod port;
+
+pub use judilibre::PisteJudilibre;
 #[cfg(feature = "record")]
 mod raw;
 
@@ -75,7 +78,8 @@ struct Call<'a> {
     /// Les deux adresses sont officielles : un 404 de consultation prouve alors l'absence.
     official_host: bool,
     endpoint: &'a str,
-    body: &'a [u8],
+    /// Corps d'un `POST`, ou `GET` sans corps (Judilibre).
+    payload: Payload<'a>,
     deadline: CallDeadline,
     refreshed: AtomicBool,
 }
@@ -222,14 +226,35 @@ impl<K: MonoClock + Clone, S: Sleeper + Clone> PisteCorpus<K, S> {
         body: &[u8],
         read: impl FnOnce(&str) -> Result<T, CorpusError>,
     ) -> Result<T, CorpusError> {
+        let locate = |base: &Url| api_url(base, endpoint);
+        self.send_request(kind, endpoint, locate, Payload::Json(body), read).await
+    }
+
+    /// Cœur de [`Self::post_json`], pour un `POST` comme pour un `GET` : `locate` tire l'adresse
+    /// de la requête de l'URL de base de l'API, `payload` dit la méthode et le corps.
+    ///
+    /// Le jeton, le client, le limiteur, le sémaphore, les réessais, l'échéance et le plafond de
+    /// corps sont ceux de l'adapter : Légifrance et Judilibre les partagent (ADR-0035, décision 2).
+    ///
+    /// # Errors
+    ///
+    /// Celles de [`Self::post_json`] ; l'erreur de `locate` vient après le mode dégradé.
+    async fn send_request<T>(
+        &self,
+        kind: EndpointKind,
+        endpoint: &str,
+        locate: impl FnOnce(&Url) -> Result<Url, CorpusError>,
+        payload: Payload<'_>,
+        read: impl FnOnce(&str) -> Result<T, CorpusError>,
+    ) -> Result<T, CorpusError> {
         let inner = &*self.inner;
         let endpoints = ready(&inner.config)?;
         let call = Call {
-            url: api_url(endpoints.base_url(), endpoint)?,
+            url: locate(endpoints.base_url())?,
             kind,
             official_host: endpoints.is_official(),
             endpoint,
-            body,
+            payload,
             deadline: CallDeadline::from_task_local(
                 &inner.clock,
                 inner.config.tuning().tool_deadline,
@@ -281,14 +306,40 @@ impl<K: MonoClock + Clone, S: Sleeper + Clone> PisteCorpus<K, S> {
         body: &[u8],
         map: impl FnOnce(D, &mut Diagnostics) -> Result<T, CorpusError>,
     ) -> Result<T, CorpusError> {
-        let stats = &self.inner.stats;
-        self.post_json(kind, endpoint, body, |text| {
+        self.post_json(kind, endpoint, body, self.reader(endpoint, map)).await
+    }
+
+    /// [`Self::fetch`] sur [`Self::send_request`] : adresse tirée de l'URL de base par `locate`,
+    /// méthode et corps donnés par `payload` (Judilibre).
+    ///
+    /// # Errors
+    ///
+    /// Celles de [`Self::send_request`] ; [`CorpusError::Decode`] si le corps ne correspond pas à
+    /// `D` ; enfin l'erreur de `map`.
+    async fn fetch_with<D: DeserializeOwned, T>(
+        &self,
+        kind: EndpointKind,
+        endpoint: &str,
+        locate: impl FnOnce(&Url) -> Result<Url, CorpusError>,
+        payload: Payload<'_>,
+        map: impl FnOnce(D, &mut Diagnostics) -> Result<T, CorpusError>,
+    ) -> Result<T, CorpusError> {
+        self.send_request(kind, endpoint, locate, payload, self.reader(endpoint, map)).await
+    }
+
+    /// Lecteur d'une réponse 2xx : décodage dans `D` sous budget, puis `map`, dont les
+    /// diagnostics vont aux compteurs une fois par appel, sur `Ok` comme sur `Err`.
+    fn reader<'a, D: DeserializeOwned, T>(
+        &'a self,
+        endpoint: &'a str,
+        map: impl FnOnce(D, &mut Diagnostics) -> Result<T, CorpusError> + 'a,
+    ) -> impl FnOnce(&str) -> Result<T, CorpusError> + 'a {
+        move |text| {
             let mut diags = Diagnostics::default();
             let mapped = decode(text, endpoint).and_then(|dto| map(dto, &mut diags));
-            stats.record_mapping(endpoint, &diags);
+            self.inner.stats.record_mapping(endpoint, &diags);
             mapped
-        })
-        .await
+        }
     }
 
     /// Une tentative de `run` : un envoi, et, sur un premier 401, un second envoi immédiat avec
@@ -337,7 +388,7 @@ impl<K: MonoClock + Clone, S: Sleeper + Clone> PisteCorpus<K, S> {
         let attempt = Attempt {
             url: &call.url,
             endpoint: call.endpoint,
-            payload: Payload::Json(call.body),
+            payload: call.payload,
             bearer: Some(&lease.value),
             timeout: call.deadline.cap(&inner.clock, inner.config.tuning().request_timeout),
             max_body_bytes: inner.config.tuning().max_body_bytes,
@@ -659,7 +710,7 @@ mod tests {
     /// Serveur simulé, horloge et attente manuelles, adapter sous test.
     pub(super) struct Rig {
         pub(super) server: MockServer,
-        clock: ManualClock,
+        pub(super) clock: ManualClock,
         pub(super) sleeper: RecordingSleeper,
         pub(super) corpus: TestCorpus,
         config: PisteConfig,

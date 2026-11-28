@@ -128,5 +128,5 @@ pub use config::{
     ConfigProblem, ConfigWarning, PisteConfig, PisteCredentials, PisteEndpoints, PisteTuning,
     RateQuota, RejectedEnv, TuningError,
 };
-pub use corpus::PisteCorpus;
+pub use corpus::{PisteCorpus, PisteJudilibre};
 pub use stats::StatsSnapshot;

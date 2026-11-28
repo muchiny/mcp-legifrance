@@ -1,0 +1,183 @@
+{
+ "page": 0,
+ "page_size": 10,
+ "total": 240,
+ "took": 85,
+ "max_score": 6438.8276,
+ "relaxed": false,
+ "results": [
+  {
+   "score": 1,
+   "highlights": {
+    "text": [
+     "contrats <em>d'assurance</em> sur la <em>vie</em> que V",
+     "sur la <em>vie</em> Livret Gaipare n° [...] et Premium Line n° [...] en <em>donations</em> <em>indirectes</em>, prononce leur nullit"
+    ]
+   },
+   "id": "5fca624b7eeb384a40cafb85",
+   "jurisdiction": "cc",
+   "chamber": "civ1",
+   "number": "16-15.867",
+   "numbers": [
+    "16-15.867"
+   ],
+   "ecli": "ECLI:FR:CCASS:2019:C100963",
+   "formation": "fs",
+   "publication": [
+    "b"
+   ],
+   "decision_date": "2019-11-20",
+   "solution": "cassation",
+   "type": "other",
+   "summary": "Un époux commun en bien ne peut librement disposer, sans l'accord de l'autre, de ses gains et salaires une fois ceux-ci économisés",
+   "themes": [
+    "regimes matrimoniaux",
+    "communauté entre époux",
+    "actif",
+    "disposition",
+    "biens de la communauté",
+    "donation",
+    "conditions",
+    "consentement de l'autre époux",
+    "nécessité",
+    "cas",
+    "sommes provenant de gains et salaires économisés"
+   ],
+   "files": [],
+   "titlesAndSummaries": [
+    {
+     "titles": [
+      "REGIMES MATRIMONIAUX",
+      "Communauté entre époux",
+      "Actif",
+      "Disposition",
+      "Biens de la communauté",
+      "Donation",
+      "Conditions",
+      "Consentement de l'autre époux",
+      "Nécessité",
+      "Cas",
+      "Sommes provenant de gains et salaires économisés"
+     ],
+     "summary": "Un époux commun en bien ne peut librement disposer, sans l'accord de l'autre, de ses gains et salaires une fois ceux-ci économisés",
+     "secondaryTitles": [
+      [
+       "MARIAGE",
+       "Devoirs et droits respectifs des époux",
+       "Pouvoirs de chaque époux sur ses gains et salaires",
+       "Etendue",
+       "Détermination",
+       "Portée"
+      ]
+     ]
+    }
+   ],
+   "particularInterest": false
+  },
+  {
+   "score": 0.8470775021216596,
+   "highlights": {
+    "text": [
+     "Mme […] fait grief à l'arrêt de rejeter sa demande au titre des <em>assurances</em> sur la <em>vie</em>, tendant à voir",
+     "exceptionnels de primes sur des contrats <em>d'assurance</em> <em>vie</em> soit 5 784,05 euros le 10 décembre"
+    ]
+   },
+   "id": "6204b8ba8d6797330c5cdff1",
+   "jurisdiction": "cc",
+   "chamber": "civ1",
+   "number": "20-18.544",
+   "numbers": [
+    "20-18.544"
+   ],
+   "ecli": "ECLI:FR:CCASS:2022:C100131",
+   "formation": "frh",
+   "publication": [
+    "b"
+   ],
+   "decision_date": "2022-02-09",
+   "solution": "rejet",
+   "type": "other",
+   "themes": [
+    "succession"
+   ],
+   "files": [],
+   "titlesAndSummaries": [
+    {
+     "titles": [
+      "SUCCESSION",
+      "Rapport",
+      "Dispense",
+      "Limite",
+      "Assurance-vie",
+      "Primes manifestement exagérées",
+      "Primes versées sur un contrat d'assurance sur la vie racheté par son souscripteur",
+      "Application (non)"
+     ],
+     "summary": "Les dispositions de l'article L. 132-13 du code des assurances, dont il résulte que les primes manifestement exagérées réglées par le souscripteur d'un contrat d'assurance sur la vie sont soumises à la règle du rapport à succession et à celle de la réduction pour atteinte à la réserve des héritiers du contractant, ne s'appliquent pas aux primes versées sur un contrat d'assurance sur la vie racheté par son souscripteur",
+     "secondaryTitles": [
+      [
+       "ASSURANCE DE PERSONNES",
+       "Assurance vie",
+       "Décès",
+       "Décès du souscripteur",
+       "Sommes dispensées de rapport à la succession",
+       "Limite",
+       "Primes manifestement exagérées",
+       "Primes versées sur un contrat d'assurance sur la vie racheté par son souscripteur",
+       "Application (non)"
+      ]
+     ]
+    }
+   ],
+   "particularInterest": false
+  },
+  {
+   "score": 0.8334607374795996,
+   "highlights": {
+    "text": [
+     "correspondante et de changement de bénéficiaire du 20 août 1999 et, subsidiairement, a sollicité la <em>requalification</em>",
+     "de ces actes en <em>donations</em> <em>indirectes</em>\nSur le premier moyen\nAttendu que Mme Y... fait grief à l'arrêt"
+    ]
+   },
+   "id": "60795f0b9ba5988459c49619",
+   "jurisdiction": "cc",
+   "chamber": "civ1",
+   "number": "08-15.658",
+   "numbers": [
+    "08-15.658"
+   ],
+   "ecli": "ECLI:FR:CCASS:2010:C100291",
+   "publication": [
+    "b"
+   ],
+   "decision_date": "2010-03-17",
+   "solution": "rejet",
+   "type": "arret",
+   "summary": "Même accomplis dans l'intérêt du curateur, les actes de disposition faits par le majeur en curatelle, seul, sans l'assistance d'un curateur ad hoc, sont susceptibles d'annulation sur le fondement de l'article 510-1 du code civil, dans sa rédaction issue de la loi n° 68-5 du 3 janvier 1968 applicable en l'espèce ; ce texte n'édicte pas une nullité de droit et laisse au juge la faculté d'apprécier s'il doit ou non prononcer la nullité, eu égard aux circonstances de la cause",
+   "themes": [
+    "majeur protege",
+    "curatelle",
+    "acte engageant le patrimoine",
+    "acte accompli dans l'intérêt du curateur",
+    "assistance d'un curateur ad hoc",
+    "défaut",
+    "sanction",
+    "nullité",
+    "appréciation souveraine",
+    "assurance de personnes",
+    "assurance",
+    "vie",
+    "eléments constitutifs",
+    "aléa",
+    "caractérisation",
+    "portée",
+    "donation",
+    "irrévocabilité",
+    "applications diverses"
+   ],
+   "files": [],
+   "titlesAndSummaries": [],
+   "particularInterest": false
+  }
+ ]
+}
