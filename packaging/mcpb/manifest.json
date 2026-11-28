@@ -22,7 +22,7 @@
     "jurisprudence"
   ],
   "license": "Apache-2.0",
-  "long_description": "Search and read French legislation, codes and case law from Légifrance through the official PISTE API, with stable citations and source URLs. Also searches and reads the tax doctrine in force (BOFiP) from the DGFiP open data portal, and the Service-Public.gouv.fr practical sheets from the day's open archive of the DILA, without an account. Requires your own free PISTE application credentials. Not affiliated with or endorsed by DILA or DGFiP.",
+  "long_description": "Search and read French legislation, codes and case law from Légifrance through the official PISTE API, with stable citations and source URLs. Also searches and reads the tax doctrine in force (BOFiP) from the DGFiP open data portal, and the Service-Public.gouv.fr practical sheets from the day's open archive of the DILA, without an account, and the court decisions of Judilibre (Cour de cassation open data) through the same PISTE application. Requires your own free PISTE application credentials. Not affiliated with or endorsed by DILA, DGFiP or the Cour de cassation.",
   "manifest_version": "0.3",
   "name": "mcp-legifrance",
   "privacy_policies": [
@@ -42,6 +42,7 @@
       "command": "${__dirname}/server/launcher",
       "env": {
         "LF_BOFIP": "${user_config.bofip}",
+        "LF_JUDILIBRE": "${user_config.judilibre}",
         "LF_PISTE_CLIENT_ID": "${user_config.piste_client_id}",
         "LF_PISTE_CLIENT_SECRET": "${user_config.piste_client_secret}",
         "LF_PISTE_ENV": "${user_config.piste_env}",
@@ -90,6 +91,10 @@
       "name": "fr_get_deliberation"
     },
     {
+      "description": "Read one decision from Judilibre (Cour de cassation open data) by its id from fr_search_judilibre. Returns the court, seat, chamber or formation and date, which must be cited with the decision, then its text as published, progressively like fr_get_text; `part` reads only one part, for example motivations (the reasons) or dispositif (the ruling). Also lists the texts applied (visa, to check with fr_resolve), related decisions with their ids, and the decision under appeal. Decisions are pseudonymised: never try to re-identify a party, and never use them to evaluate, compare or predict the practice of a judge or court clerk.",
+      "name": "fr_get_judilibre"
+    },
+    {
       "description": "List the legal links of an article (LEGIARTI) or a decision (JURITEXT, CONSTEXT, CETATEXT): texts it cites, texts citing it, and case law it refers to. Article links come from Légifrance with their ids; decision links are parsed from the decision's references, have no id and may carry an inexact code: pass one to fr_resolve only if its citation names a code. Each link has a `relation`, a `citation` and, when known, an `id` and `source_url`; `relation` as a parameter keeps one kind of link. At most 100 links are returned: `truncated` is true when there are more, and there is no next page.",
       "name": "fr_get_related"
     },
@@ -118,6 +123,10 @@
       "name": "fr_search_bofip"
     },
     {
+      "description": "Search Judilibre, the open data of French judicial court decisions published by the Cour de cassation: the Cour de cassation itself, but also courts of appeal, judicial and commercial courts and labour courts, most of which are not on Légifrance. `courts` defaults to all of them; `part` limits the search to one part of the decision, for example the reasons (motivations), which is slower. Returns ids to read with fr_get_judilibre, with court, seat, chamber and date, never the full text. Decisions are pseudonymised; French law forbids using them to evaluate, compare or predict the practice of a judge or court clerk.",
+      "name": "fr_search_judilibre"
+    },
+    {
       "description": "Search the practical sheets of Service-Public.gouv.fr, the French administration's plain-language guide to rights and procedures (DILA): what the rules mean for a given situation, not the law itself. The search runs locally on the titles and summaries of the sheets and folders, never on their full text: use a few plain words, accents and case aside; a word also matches the longer words it starts. `audience` picks particuliers (default), entreprendre (businesses and the self-employed) or all. The first search of the day downloads the day's archive (about 24 MB). Returns ids (F for a sheet, N for a folder) to read with fr_get_service_public, never the text.",
       "name": "fr_search_service_public"
     },
@@ -133,6 +142,13 @@
       "description": "on (default) or off. The two tax doctrine tools read the open data portal of the French tax administration (data.economie.gouv.fr) and send it your search words. off turns that source off; any other value turns it off too.",
       "required": false,
       "title": "Tax doctrine source (BOFiP)",
+      "type": "string"
+    },
+    "judilibre": {
+      "default": "on",
+      "description": "on (default) or off. The two court decision tools search and read Judilibre, the open data of the Cour de cassation, through the same PISTE application and credentials, and send it your search words. Your PISTE application must also subscribe to the Judilibre API. off turns that source off; any other value turns it off too.",
+      "required": false,
+      "title": "Court decisions source (Judilibre)",
       "type": "string"
     },
     "piste_client_id": {

@@ -7,6 +7,7 @@
 use std::future::Future;
 
 use super::LegalService;
+use crate::ports::JudicialOpenData;
 use crate::{
     audited::CallMeta,
     error::AppError,
@@ -17,8 +18,8 @@ use crate::{
     usecase::get_related::GetRelatedUseCase,
 };
 
-impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine, G: PublicGuidance>
-    LegalService<C, A, K, D, G>
+impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine, G: PublicGuidance, J: JudicialOpenData>
+    LegalService<C, A, K, D, G, J>
 {
     /// `fr_get_related` : les liens d'un article ou d'une décision, cent au plus (05 §5.11),
     /// audité sous `fr_get_related` (métrique : nombre de liens renvoyés). `cancel` se résout quand

@@ -11,6 +11,7 @@ pub(crate) mod consult_text;
 pub(crate) mod de;
 pub(crate) mod decode;
 pub(crate) mod error;
+pub(crate) mod judilibre;
 pub(crate) mod juri;
 pub(crate) mod m6;
 pub(crate) mod m7;
@@ -72,7 +73,7 @@ mod tests {
 
     /// Les fichiers de `dto/`, `mod.rs` compris, et leur source. Un fichier ajouté au dossier sans
     /// être listé ici fait échouer `every_dto_file_is_listed`.
-    const SOURCES: [(&str, &str); 13] = [
+    const SOURCES: [(&str, &str); 14] = [
         ("acco.rs", include_str!("acco.rs")),
         ("article.rs", include_str!("article.rs")),
         ("budget.rs", include_str!("budget.rs")),
@@ -80,6 +81,7 @@ mod tests {
         ("de.rs", include_str!("de.rs")),
         ("decode.rs", include_str!("decode.rs")),
         ("error.rs", include_str!("error.rs")),
+        ("judilibre.rs", include_str!("judilibre.rs")),
         ("juri.rs", include_str!("juri.rs")),
         ("m6.rs", include_str!("m6.rs")),
         ("m7.rs", include_str!("m7.rs")),
@@ -103,16 +105,20 @@ mod tests {
     ];
 
     /// Attributs qui paient chaque élément d'une liste sur le budget du document.
-    const BOUNDED: [&str; 2] =
-        [r#"deserialize_with = "de::bounded_list""#, r#"deserialize_with = "bounded_results""#];
+    const BOUNDED: [&str; 3] = [
+        r#"deserialize_with = "de::bounded_list""#,
+        r#"deserialize_with = "bounded_results""#,
+        r#"deserialize_with = "bounded_hits""#,
+    ];
 
     /// Implémentation des lecteurs bornés eux-mêmes, hors balayage : fichier et début de
     /// l'élément (fonction ou `impl`), qui s'étend jusqu'à la fin de son corps.
-    const READERS: [(&str, &str); 4] = [
+    const READERS: [(&str, &str); 5] = [
         ("de.rs", "fn bounded_list<"),
         ("de.rs", "fn capped_list<"),
         ("de.rs", "for ListVisitor<T>"),
         ("search.rs", "fn bounded_results<"),
+        ("judilibre.rs", "fn bounded_hits<"),
     ];
 
     /// Code de production d'un fichier : tout ce qui précède son module de test. Rien ne le suit
@@ -318,7 +324,7 @@ mod tests {
             total.bounded += scan.bounded;
             total.readers += scan.readers;
         }
-        assert_eq!(total, Scan { bounded: 18, readers: 4, unbounded: Vec::new() });
+        assert_eq!(total, Scan { bounded: 30, readers: 5, unbounded: Vec::new() });
     }
 
     #[test]

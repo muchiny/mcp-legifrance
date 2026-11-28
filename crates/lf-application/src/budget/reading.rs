@@ -23,7 +23,7 @@ use lf_domain::{
     entity::OfficialSummary,
     text::{
         DispositifRule, Focus, LongText, SUMMARY_CAP_CHARS, Summary, SummarySource, rank, summary,
-        window,
+        summary_with_dispositif, window,
     },
 };
 
@@ -235,8 +235,36 @@ pub fn read(
     rule: DispositifRule,
     req: &ReadingRequest,
 ) -> Result<Reading, AppError> {
+    read_by(text, req, |cap| summary(text, official, rule, cap))
+}
+
+/// Comme [`read`], pour un texte dont le dispositif est déjà délimité (les zones d'une décision
+/// de Judilibre, ADR-0035 décision 5) : le résumé est le sommaire officiel `official`, sinon le
+/// texte que rend `dispositif` s'il n'est pas blanc, sinon le début du texte. `dispositif`
+/// n'est appelé qu'en mode résumé et faute de sommaire officiel : les trois autres modes ne le
+/// lisent pas.
+///
+/// # Errors
+///
+/// Celles de [`read`].
+pub fn read_with_dispositif(
+    text: &LongText,
+    official: Option<&OfficialSummary>,
+    dispositif: impl FnOnce() -> Option<String>,
+    req: &ReadingRequest,
+) -> Result<Reading, AppError> {
+    read_by(text, req, |cap| summary_with_dispositif(text, official, dispositif, cap))
+}
+
+/// Corps de [`read`] et de [`read_with_dispositif`] : `build` rend le résumé au plafond donné,
+/// et ne sert qu'au mode résumé.
+fn read_by(
+    text: &LongText,
+    req: &ReadingRequest,
+    build: impl FnOnce(usize) -> Summary,
+) -> Result<Reading, AppError> {
     match &req.mode {
-        Mode::Summary => Ok(read_summary(text, official, rule, req.max_chars, req.whole_cap)),
+        Mode::Summary => Ok(read_summary(text, build, req.max_chars, req.whole_cap)),
         Mode::Full { offset } => read_window(text, *offset, req.max_chars),
         Mode::Passages { focus, count } => Ok(read_passages(text, focus, *count, req.max_chars)),
     }
@@ -260,23 +288,22 @@ fn bare(text: &LongText) -> Reading {
 /// plus `min(max_chars, 1 200)` caractères. `whole_cap` vaut 1 200, ou 2 000 pour un article.
 fn read_summary(
     text: &LongText,
-    official: Option<&OfficialSummary>,
-    rule: DispositifRule,
+    build: impl FnOnce(usize) -> Summary,
     max_chars: usize,
     whole_cap: usize,
 ) -> Reading {
-    let built = summary(text, official, rule, max_chars.min(SUMMARY_CAP_CHARS));
-    let partial = summary_is_partial(&built, length(text));
+    let made = build(max_chars.min(SUMMARY_CAP_CHARS));
+    let partial = summary_is_partial(&made, length(text));
     if length(text) <= max_chars.min(whole_cap) {
-        let official = built.source == SummarySource::Official;
+        let official = made.source == SummarySource::Official;
         Reading {
-            summary: official.then_some(built),
+            summary: official.then_some(made),
             text: (!text.is_empty()).then(|| text.as_str().to_owned()),
             summary_truncated: official && partial,
             ..bare(text)
         }
     } else {
-        Reading { summary: Some(built), summary_truncated: partial, ..bare(text) }
+        Reading { summary: Some(made), summary_truncated: partial, ..bare(text) }
     }
 }
 
@@ -599,6 +626,46 @@ mod tests {
                 .unwrap();
         assert_eq!(cut.summary.as_ref().map(|s| s.source), Some(SummarySource::Dispositif));
         assert!(cut.summary_truncated);
+    }
+
+    /// Le dispositif donné (zones de Judilibre) vient après le sommaire officiel et avant le
+    /// début ; les trois autres modes ne le lisent pas.
+    #[test]
+    fn a_given_dispositif_is_the_summary_after_the_official_one() {
+        let text = long(&paragraphs(30, 4));
+        let given = Some("PAR CES MOTIFS, la Cour : CASSE ET ANNULE.");
+        let read = |official: Option<&OfficialSummary>,
+                    dispositif: Option<&str>,
+                    edit: fn(&mut ReadingInput)| {
+            let given = || dispositif.map(str::to_owned);
+            read_with_dispositif(&text, official, given, &request(edit)).unwrap()
+        };
+        let ruling = read(None, given, |_| {});
+        let summary = ruling.summary.as_ref().unwrap();
+        assert_eq!(
+            (summary.source, summary.text.as_str()),
+            (SummarySource::Dispositif, "PAR CES MOTIFS, la Cour : CASSE ET ANNULE.")
+        );
+        assert!(!ruling.summary_truncated);
+        let official = OfficialSummary::new(["Analyse officielle courte."], Vec::<String>::new());
+        let first = read(Some(&official), given, |_| {});
+        assert_eq!(first.summary.map(|s| s.source), Some(SummarySource::Official));
+        let blank = read(None, Some("  \n "), |_| {});
+        assert_eq!(blank.summary.map(|s| s.source), Some(SummarySource::Lead));
+        // Les autres modes lisent le texte, jamais le dispositif donné, qui n'est pas calculé.
+        let full = read(None, given, |input| input.detail = Some("full".to_owned()));
+        assert_eq!(full, read_window(&text, 0, ResponseBudget::MAX_CHARS_DEFAULT).unwrap());
+        let asked = std::cell::Cell::new(false);
+        let dispositif = || -> Option<String> {
+            asked.set(true);
+            None
+        };
+        let full_request = request(|input| input.detail = Some("full".to_owned()));
+        assert!(read_with_dispositif(&text, None, dispositif, &full_request).is_ok());
+        assert!(!asked.get());
+        // Le mode résumé, sans sommaire officiel, le demande.
+        assert!(read_with_dispositif(&text, None, dispositif, &request(|_| {})).is_ok());
+        assert!(asked.get());
     }
 
     #[test]

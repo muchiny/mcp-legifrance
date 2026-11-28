@@ -15,7 +15,28 @@ Rubriques (`docs/plan/06-qualite.md` §13.3) : `Added`, `Changed`, `Deprecated`,
 
 ## [Unreleased]
 
-Rien depuis `1.5.0`.
+Jalon MJ (ADR-0035, AM-103) : les décisions de justice de Judilibre, la base open data de la Cour de cassation (Cour de cassation, cours d'appel, tribunaux judiciaires, tribunaux de commerce, conseils de prud'hommes), lues par PISTE avec la même application, le même jeton et le même débit que Légifrance. `lock-descriptors --compare v1.5.0` relève deux ajouts : la version suivante est une mineure (1.6.0 proposée).
+
+### Added
+
+- `fr_search_judilibre` : recherche dans Judilibre par mots (`match` : `all`, par défaut, `any` ou `exact`), dans les juridictions choisies (`courts` : `cc`, `ca`, `tj`, `tcom`, `cph`, toutes par défaut), dans une partie de la décision (`part`, plus lent) et entre deux dates, triée par pertinence (défaut) ou par date ; `page` et `page_size` (1 à 50, 10 par défaut), avec au plus 10 000 résultats, vérifié avant le réseau. Rend pour chaque décision l'identifiant, la juridiction et le siège, la chambre, la formation, la date, le numéro, l'ECLI, la solution, la publication, le résumé ou un extrait, trois thèmes au plus et une citation ; jamais le texte entier.
+- `fr_get_judilibre` : une décision par son identifiant (24 caractères hexadécimaux), avec les mêmes mentions, le texte tel que publié et la lecture progressive des autres outils (`detail`, `offset`, `max_chars`, `focus`). `part` n'en lit qu'une partie (`introduction`, `expose`, `moyens`, `motivations`, `dispositif` ou `annexes`), découpée selon les zones que publie la Cour de cassation ; sans zones, le texte entier, avec une note. Rend aussi `visa` (textes appliqués, à passer à `fr_resolve`), `related` (décisions rapprochées, avec leur identifiant Judilibre) et `contested` (décision attaquée). Les listes `themes`, `visa` et `related` gardent 100 entrées au plus, bien au-delà des décisions lues.
+- Chaque réponse porte la mention de la source (`attribution`), la date de mise à jour de la décision (`updated`) ou du jour de la consultation (`consulted_on`), et une note fixe (`case_law_note`) : décisions pseudonymisées, telles que publiées ; ne jamais réidentifier une partie ; interdiction d'employer l'identité des magistrats et des greffiers pour évaluer, analyser, comparer ou prédire leurs pratiques (article L. 111-13 du code de l'organisation judiciaire). Aucun paramètre ne désigne une personne, une chambre, une formation ni un siège, et aucune statistique n'est rendue.
+- Requêtes fermées : deux chemins, `/cassation/judilibre/v1.0/search` et `/cassation/judilibre/v1.0/decision`, sur l'hôte de l'API PISTE en vigueur ; une liste fermée de paramètres, `jurisdiction` toujours explicite. Aucun cache. Aucun message d'erreur ni journal ne porte un mot de la recherche.
+- Erreurs : une application PISTE non abonnée à Judilibre (`403`) reçoit `[config_error] Your PISTE application is not subscribed to the Judilibre API (free): accept its terms on piste.gouv.fr and tick it in your application.`, et le serveur ne renvoie aucune requête à Judilibre pendant 10 minutes. `400`, `416` et `423` donnent `[upstream_error]` sans nouvelle tentative.
+- `LF_JUDILIBRE=on|off` (défaut `on`), mêmes règles que `LF_BOFIP` : coupée d'office en mode hors ligne, sauf `on` explicite ; toute autre valeur coupe la source et le signale comme un problème. Coupée, ou sans identifiants PISTE, les deux outils répondent `[config_error]` sans aucune requête. Le bundle MCPB gagne le réglage `judilibre`. Aucun crate ni paquet tiers nouveau.
+
+### Changed
+
+- `fr_coverage`, à la surface v0.3 seulement : famille `JUDILIBRE`, après `SERVICE_PUBLIC`, lacune FR-110 (source active) ou FR-111 (source coupée), et le texte de FR-005 renvoie à `fr_search_judilibre` pour les juges du fond. Les réponses v0.1 et v0.2 ne changent pas, à l'octet. La métrique d'audit de `fr_coverage`, qui compte toutes les lacunes du domaine quelle que soit la surface, en compte une de plus.
+- Instructions du serveur (v0.3) : une ligne 7 cite les deux outils ; les lignes 5 et 6 (BOFiP, Service-Public) sont raccourcies pour rester sous 4 000 caractères.
+- Le limiteur, le plafond de requêtes simultanées et le jeton de PISTE servent les deux API : `LF_PISTE_RPS`, `LF_PISTE_BURST` et `LF_PISTE_CONCURRENCY` comptent Légifrance et Judilibre ensemble.
+
+### Tool surface
+
+- Ajout : `fr_search_judilibre` (« Search Judilibre court decisions ») et `fr_get_judilibre` (« Read a Judilibre decision »). `lock-descriptors --compare v1.5.0` relève ces deux ajouts et les instructions reformulées ; les dix-sept autres outils ne changent pas (même `sha256`). Il demande une version mineure.
+- `tools/list` : 49 792 → 57 244 octets (+7 452), sous le plafond relevé à 59 000 (règle d'AM-63 : mesure plus 3 %, arrondie à la centaine supérieure).
+- Instructions : 3 937 → 3 992 caractères, sous le plafond de 4 000.
 
 ## [1.5.0] - 2026-11-25
 

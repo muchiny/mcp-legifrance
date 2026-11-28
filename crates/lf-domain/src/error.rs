@@ -282,6 +282,21 @@ pub enum DomainError {
         /// Entrée reçue, tronquée.
         input: String,
     },
+    /// Identifiant de Judilibre malformé ([`JudilibreId`](crate::judilibre::JudilibreId)).
+    ///
+    /// Ne se construit pas hors du crate :
+    ///
+    /// ```compile_fail
+    /// let _ = lf_domain::DomainError::InvalidJudilibreId { input: "x".repeat(99) };
+    /// ```
+    #[error(
+        "invalid Judilibre id {input:?}: expected 24 hexadecimal characters, e.g. 5fca624b7eeb384a40cafb85"
+    )]
+    #[non_exhaustive]
+    InvalidJudilibreId {
+        /// Entrée reçue, tronquée.
+        input: String,
+    },
 }
 
 /// Recopie `input` pour un message d'erreur, tronquée à [`ECHO_MAX_CHARS`] caractères.
@@ -300,6 +315,7 @@ mod tests {
         ecli::Ecli,
         guidance::SheetId,
         id::{AnyId, ArticleId, DecisionId, DocumentId, LegiTextId, SectionId, parse_versioned},
+        judilibre::JudilibreId,
     };
     use pretty_assertions::assert_eq;
     use proptest::prelude::*;
@@ -315,6 +331,7 @@ mod tests {
             | DomainError::InvalidBoiId { input }
             | DomainError::InvalidSerie { input }
             | DomainError::InvalidSheetId { input }
+            | DomainError::InvalidJudilibreId { input }
             | DomainError::HitKindMismatch { id: input, .. } => input,
             DomainError::EmptyCoverageGaps
             | DomainError::TocTooDeep { .. }
@@ -467,6 +484,11 @@ mod tests {
              e.g. F1437"
         );
         assert_eq!(
+            DomainError::InvalidJudilibreId { input: "JURITEXT000045653019".into() }.to_string(),
+            "invalid Judilibre id \"JURITEXT000045653019\": expected 24 hexadecimal characters, \
+             e.g. 5fca624b7eeb384a40cafb85"
+        );
+        assert_eq!(
             DomainError::FocusTooLong { len: 1396, max: 500 }.to_string(),
             "focus is 1396 characters long (max 500)"
         );
@@ -501,6 +523,7 @@ mod tests {
             BoiId::parse(&long).unwrap_err(),
             Serie::parse(&long).unwrap_err(),
             SheetId::parse(&long).unwrap_err(),
+            JudilibreId::parse(&long).unwrap_err(),
         ];
         for error in &errors {
             assert_eq!(echoed(error), echo(&long));

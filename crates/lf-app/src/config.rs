@@ -26,6 +26,9 @@
 //! - Fiches pratiques (jalon MS) : les archives du jour de Service-Public, mêmes règles par
 //!   `LF_SERVICE_PUBLIC` ([`ServicePublicSource`], ADR-0033, décision 10). Aucune variable
 //!   d'adresse ni identifiant.
+//! - Décisions de justice (jalon MJ) : Judilibre, par l'API PISTE et le même jeton que Légifrance,
+//!   mêmes règles par `LF_JUDILIBRE` ([`CaseLawSource`], ADR-0035, décision 10). Aucune variable
+//!   d'adresse : l'hôte est celui de l'API PISTE (`LF_PISTE_BASE_URL` compris).
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -44,7 +47,7 @@ use lf_adapter_service_public::ServicePublicConfig;
 use lf_application::{
     audited::AuditMode,
     ports::PisteEnvironment,
-    service::{ConfigurationState, DoctrineSource, GuidanceSource},
+    service::{ConfigurationState, DoctrineSource, GuidanceSource, JudilibreSource},
 };
 use secrecy::SecretString;
 use tracing_subscriber::EnvFilter;
@@ -85,6 +88,8 @@ const DILA_DIR: &str = "LF_DILA_DIR";
 const BOFIP: &str = "LF_BOFIP";
 /// `LF_SERVICE_PUBLIC` : source des fiches pratiques (Service-Public, jalon MS), `on` ou `off`.
 const SERVICE_PUBLIC: &str = "LF_SERVICE_PUBLIC";
+/// `LF_JUDILIBRE` : source des décisions de justice (Judilibre, jalon MJ), `on` ou `off`.
+const JUDILIBRE: &str = "LF_JUDILIBRE";
 
 /// Équivalent hérité de `LF_PISTE_CLIENT_ID`.
 const LEGACY_CLIENT_ID: &str = "FR_ELI_CLIENT_ID";
@@ -108,9 +113,9 @@ const IGNORED_LEGACY: [&str; 5] = [
 ];
 
 /// Variables dont la valeur est lue : la liste fermée de 00 §1, `LF_DILA_DIR` (M9, à ajouter à 00 §1
-/// et à 02 §8.2), `LF_BOFIP` (jalon MB), `LF_SERVICE_PUBLIC` (jalon MS) et les `FR_ELI_*` de
-/// compatibilité.
-const READ_VARIABLES: [&str; 22] = [
+/// et à 02 §8.2), `LF_BOFIP` (jalon MB), `LF_SERVICE_PUBLIC` (jalon MS), `LF_JUDILIBRE` (jalon MJ)
+/// et les `FR_ELI_*` de compatibilité.
+const READ_VARIABLES: [&str; 23] = [
     PISTE_ENV,
     CLIENT_ID,
     CLIENT_SECRET,
@@ -128,6 +133,7 @@ const READ_VARIABLES: [&str; 22] = [
     DILA_DIR,
     BOFIP,
     SERVICE_PUBLIC,
+    JUDILIBRE,
     LEGACY_CLIENT_ID,
     LEGACY_CLIENT_SECRET,
     LEGACY_OAUTH_URL,
@@ -306,10 +312,10 @@ impl CorpusSource {
     }
 }
 
-/// Pourquoi une source ouverte (BOFiP ou Service-Public) est coupée.
+/// Pourquoi une source tierce (BOFiP, Service-Public ou Judilibre) est coupée.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SourceOff {
-    /// Sa variable (`LF_BOFIP`, `LF_SERVICE_PUBLIC`) vaut `off`.
+    /// Sa variable (`LF_BOFIP`, `LF_SERVICE_PUBLIC`, `LF_JUDILIBRE`) vaut `off`.
     Requested,
     /// Sa variable porte une autre valeur que `on` ou `off` : échec fermé.
     Invalid,
@@ -391,6 +397,38 @@ impl ServicePublicSource {
     }
 }
 
+/// Source des décisions de justice (Judilibre, ADR-0035) : l'API Judilibre par PISTE, ou rien.
+///
+/// Elle dépend de PISTE : mêmes identifiants, même environnement, même hôte, et le même cœur
+/// (jeton, client, limiteur) que Légifrance (G12). Sans identifiants, elle reste active mais ne
+/// fait aucune requête (`[config_error]`). Coupée, chaque outil de Judilibre répond
+/// `[config_error]` sans aucune requête.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CaseLawSource {
+    /// L'API Judilibre est interrogée, par le cœur PISTE du processus.
+    On,
+    /// Source coupée, et pourquoi.
+    Off(SourceOff),
+}
+
+impl CaseLawSource {
+    /// Nom de la source dans le journal de démarrage.
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            Self::On => "judilibre",
+            Self::Off(reason) => reason.shown(),
+        }
+    }
+
+    /// L'état que `fr_coverage` rend : source active (lacune FR-110) ou coupée (FR-111).
+    pub(crate) fn coverage(self) -> JudilibreSource {
+        match self {
+            Self::On => JudilibreSource::Active,
+            Self::Off(_) => JudilibreSource::Off,
+        }
+    }
+}
+
 /// Réglages de l'audit (00 §1).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct AuditSettings {
@@ -420,6 +458,8 @@ pub(crate) struct AppConfig {
     pub(crate) bofip: BofipSource,
     /// Source des fiches pratiques : Service-Public, ou rien (`LF_SERVICE_PUBLIC`, jalon MS).
     pub(crate) service_public: ServicePublicSource,
+    /// Source des décisions de justice : Judilibre, ou rien (`LF_JUDILIBRE`, jalon MJ).
+    pub(crate) judilibre: CaseLawSource,
 }
 
 /// Avertissement ou problème relevé en lisant la configuration (jamais de secret ni de valeur lue).
@@ -470,6 +510,8 @@ pub(crate) enum Notice {
     /// `LF_SERVICE_PUBLIC` n'est ni `on` ni `off` : la source de Service-Public est coupée
     /// (échec fermé).
     InvalidServicePublic,
+    /// `LF_JUDILIBRE` n'est ni `on` ni `off` : la source de Judilibre est coupée (échec fermé).
+    InvalidJudilibre,
     /// Identifiants PISTE absents : mode dégradé.
     CredentialsMissing,
 }
@@ -485,6 +527,7 @@ impl Notice {
                 | Self::DilaDir(_)
                 | Self::InvalidBofip
                 | Self::InvalidServicePublic
+                | Self::InvalidJudilibre
                 | Self::CredentialsMissing
         )
     }
@@ -532,6 +575,9 @@ impl fmt::Display for Notice {
                     f,
                     "{SERVICE_PUBLIC} must be on or off: the Service-Public source is turned off"
                 )
+            }
+            Self::InvalidJudilibre => {
+                write!(f, "{JUDILIBRE} must be on or off: the Judilibre source is turned off")
             }
             Self::CredentialsMissing => {
                 write!(f, "PISTE credentials missing: set {CLIENT_ID} and {CLIENT_SECRET}")
@@ -620,9 +666,9 @@ pub(crate) struct Loaded {
     /// Avertissements et problèmes, dans l'ordre de lecture.
     pub(crate) notices: Vec<Notice>,
     /// Une ligne par variable de la liste fermée, dans l'ordre de 02 §8.2, plus `LF_DILA_DIR`
-    /// quand elle est définie, puis `LF_BOFIP` et `LF_SERVICE_PUBLIC`, chacune quand elle est
-    /// définie ou que sa source est coupée d'office (sans elles, la table garde ses quatorze
-    /// lignes).
+    /// quand elle est définie, puis `LF_BOFIP`, `LF_SERVICE_PUBLIC` et `LF_JUDILIBRE`, chacune
+    /// quand elle est définie ou que sa source est coupée d'office (sans elles, la table garde ses
+    /// quatorze lignes).
     pub(crate) lines: Vec<SettingLine>,
 }
 
@@ -855,9 +901,9 @@ impl<E: EnvSource> Collector<'_, E> {
         }
     }
 
-    /// L'interrupteur `variable` d'une source ouverte (`LF_BOFIP`, jalon MB ; `LF_SERVICE_PUBLIC`,
-    /// jalon MS) : `on` ou `off`, casse ignorée. Rend la raison de la coupure, ou `None` si la
-    /// source est active ; `invalid` est le problème d'une autre valeur.
+    /// L'interrupteur `variable` d'une source tierce (`LF_BOFIP`, jalon MB ; `LF_SERVICE_PUBLIC`,
+    /// jalon MS ; `LF_JUDILIBRE`, jalon MJ) : `on` ou `off`, casse ignorée. Rend la raison de la
+    /// coupure, ou `None` si la source est active ; `invalid` est le problème d'une autre valeur.
     ///
     /// Absente ou blanche : la source est active, sauf en mode hors ligne (`offline` :
     /// `LF_DILA_DIR` est défini, utilisable ou non), où elle est coupée d'office. Une valeur
@@ -1083,12 +1129,14 @@ pub(crate) fn load(env: &impl EnvSource) -> Loaded {
     if let CorpusSource::Unusable(problem) = &source {
         problems.push(problem.to_string());
     }
-    // Mode hors ligne : `LF_DILA_DIR` est défini, utilisable ou non. Les sources du BOFiP et de
-    // Service-Public y sont coupées d'office, sauf `on` explicite (ADR-0029, décision 8 ;
-    // ADR-0033, décision 10).
+    // Mode hors ligne : `LF_DILA_DIR` est défini, utilisable ou non. Les sources du BOFiP, de
+    // Service-Public et de Judilibre y sont coupées d'office, sauf `on` explicite (ADR-0029,
+    // décision 8 ; ADR-0033, décision 10 ; ADR-0035, décision 10).
     let offline = !matches!(source, CorpusSource::Piste);
     let bofip_off = reader.switch(BOFIP, Notice::InvalidBofip, offline);
     let service_public_off = reader.switch(SERVICE_PUBLIC, Notice::InvalidServicePublic, offline);
+    let judilibre_off = reader.switch(JUDILIBRE, Notice::InvalidJudilibre, offline);
+    let judilibre = judilibre_off.map_or(CaseLawSource::On, CaseLawSource::Off);
 
     // Les variables héritées jamais lues ne sont que signalées.
     for variable in IGNORED_LEGACY {
@@ -1138,10 +1186,13 @@ pub(crate) fn load(env: &impl EnvSource) -> Loaded {
             doctrine: bofip.coverage(),
             // Le serveur sert les deux outils de Service-Public : la source est active ou coupée.
             guidance: service_public.coverage(),
+            // Le serveur sert les deux outils de Judilibre : la source est active ou coupée.
+            judilibre: judilibre.coverage(),
         },
         source,
         bofip,
         service_public,
+        judilibre,
     };
     Loaded { config, notices: reader.notices, lines: reader.lines }
 }
@@ -1292,14 +1343,16 @@ mod tests {
                 custom_host: false,
                 problems: Vec::new(),
                 local_snapshot: false,
-                // Les sources du BOFiP et de Service-Public sont actives sans aucun réglage
-                // (Q29 = A ; ADR-0033, décision 10).
+                // Les sources du BOFiP, de Service-Public et de Judilibre sont actives sans aucun
+                // réglage (Q29 = A ; ADR-0033, décision 10 ; ADR-0035, décision 10).
                 doctrine: DoctrineSource::Active,
                 guidance: GuidanceSource::Active,
+                judilibre: JudilibreSource::Active,
             }
         );
         assert_eq!(config.bofip, default_bofip());
         assert_eq!(config.service_public, default_service_public());
+        assert_eq!(config.judilibre, CaseLawSource::On);
     }
 
     #[test]
@@ -2223,7 +2276,7 @@ mod tests {
             assert_eq!(offline.config.configuration.guidance, GuidanceSource::Off, "{dir}");
             assert!(!offline.notices.contains(&Notice::InvalidServicePublic), "{dir}");
             assert_eq!(
-                offline.lines.last(),
+                line_of(&offline, SERVICE_PUBLIC),
                 Some(&service_public_line(
                     Source::Default,
                     "off (LF_DILA_DIR is set)",
@@ -2261,6 +2314,140 @@ mod tests {
         assert_eq!(off(SourceOff::Offline), "off (LF_DILA_DIR is set)");
     }
 
+    // --- Décisions de justice : LF_JUDILIBRE (jalon MJ) ------------------------------------------
+
+    fn judilibre_line(source: Source, value: &str, state: LineState) -> SettingLine {
+        SettingLine { name: JUDILIBRE, source, value: value.to_owned(), state }
+    }
+
+    #[test]
+    fn the_judilibre_source_is_on_by_default_without_a_line() {
+        let cases: [&[(&str, &str)]; 2] = [&[], &[(JUDILIBRE, "  ")]];
+        for pairs in cases {
+            let loaded = with_credentials(pairs);
+            assert_eq!(loaded.config.judilibre, CaseLawSource::On);
+            assert_eq!(loaded.config.configuration.judilibre, JudilibreSource::Active);
+            // G9 : sans la variable, `check-config` garde ses quatorze lignes et ne dit rien.
+            assert_eq!(loaded.lines.len(), 14);
+            assert_eq!(loaded.notices, Vec::new());
+        }
+        // Sans identifiants, la source reste active : c'est le cœur PISTE qui n'envoie rien
+        // (`[config_error]`), et seul le problème des identifiants est signalé.
+        let bare = loaded(&[]);
+        assert_eq!(bare.config.judilibre, CaseLawSource::On);
+        assert_eq!(bare.config.configuration.judilibre, JudilibreSource::Active);
+        assert_eq!(bare.notices, [Notice::CredentialsMissing]);
+    }
+
+    #[test]
+    fn lf_judilibre_on_and_off_are_read_whatever_the_case() {
+        let off = CaseLawSource::Off(SourceOff::Requested);
+        let cases = [
+            ("on", CaseLawSource::On, JudilibreSource::Active, "on"),
+            (" ON ", CaseLawSource::On, JudilibreSource::Active, "on"),
+            ("off", off, JudilibreSource::Off, "off"),
+            (" Off ", off, JudilibreSource::Off, "off"),
+        ];
+        for (raw, source, state, shown) in cases {
+            let loaded = with_credentials(&[(JUDILIBRE, raw)]);
+            assert_eq!(loaded.config.judilibre, source, "{raw}");
+            assert_eq!(loaded.config.configuration.judilibre, state, "{raw}");
+            assert_eq!(loaded.notices, Vec::new(), "{raw}");
+            assert_eq!(loaded.lines.len(), 15, "{raw}");
+            assert_eq!(
+                loaded.lines.last(),
+                Some(&judilibre_line(Source::Variable(JUDILIBRE), shown, LineState::Ok)),
+                "{raw}"
+            );
+            // Les autres sources tierces n'en dépendent pas.
+            assert_eq!(loaded.config.bofip, default_bofip(), "{raw}");
+            assert_eq!(loaded.config.service_public, default_service_public(), "{raw}");
+        }
+        // Les trois variables : BOFiP, Service-Public, puis Judilibre.
+        let all = with_credentials(&[(JUDILIBRE, "off"), (SERVICE_PUBLIC, "off"), (BOFIP, "off")]);
+        let names: Vec<&str> = all.lines[14..].iter().map(|line| line.name).collect();
+        assert_eq!(names, [BOFIP, SERVICE_PUBLIC, JUDILIBRE]);
+    }
+
+    /// Échec fermé (ADR-0035, décision 10) : un refus mal écrit coupe la source au lieu de la
+    /// laisser envoyer les mots d'une recherche, et la valeur lue n'est recopiée nulle part.
+    #[test]
+    fn invalid_judilibre_value_turns_the_source_off() {
+        for raw in ["false", "0", "no", "true", "1", "yes", "onn", "of", "disabled"] {
+            let loaded = with_credentials(&[(JUDILIBRE, raw)]);
+            assert_eq!(loaded.config.judilibre, CaseLawSource::Off(SourceOff::Invalid), "{raw}");
+            assert_eq!(loaded.config.configuration.judilibre, JudilibreSource::Off, "{raw}");
+            assert_eq!(loaded.notices, [Notice::InvalidJudilibre], "{raw}");
+            assert!(!loaded.is_valid(), "{raw}");
+            assert_eq!(
+                loaded.lines.last(),
+                Some(&judilibre_line(
+                    Source::Variable(JUDILIBRE),
+                    "off (invalid value)",
+                    LineState::Problem
+                )),
+                "{raw}"
+            );
+            // PISTE n'en souffre pas : aucun problème de configuration.
+            assert_eq!(loaded.config.source, CorpusSource::Piste, "{raw}");
+            assert_eq!(loaded.config.configuration.problems, Vec::<String>::new(), "{raw}");
+        }
+        assert_eq!(
+            Notice::InvalidJudilibre.to_string(),
+            "LF_JUDILIBRE must be on or off: the Judilibre source is turned off"
+        );
+        let loaded = with_credentials(&[(JUDILIBRE, "zzsentinellezz")]);
+        assert!(!format!("{loaded:?}").contains("zzsentinellezz"));
+        let logs = logs_of(&loaded);
+        assert!(logs.contains("ERROR"), "{logs}");
+        assert!(logs.contains("LF_JUDILIBRE must be on or off"), "{logs}");
+        assert!(!logs.contains("zzsentinellezz"), "{logs}");
+    }
+
+    /// Mode hors ligne : `LF_DILA_DIR` défini coupe la source d'office, qu'il soit utilisable ou
+    /// non ; seul `LF_JUDILIBRE=on` la rétablit, et une valeur explicite l'emporte toujours.
+    #[test]
+    fn a_dila_dir_turns_the_judilibre_source_off_unless_lf_judilibre_is_on() {
+        let usable = abs_str("index");
+        for dir in [usable.as_str(), "relative/index"] {
+            let offline = loaded(&[(DILA_DIR, dir)]);
+            assert_eq!(offline.config.judilibre, CaseLawSource::Off(SourceOff::Offline), "{dir}");
+            assert_eq!(offline.config.configuration.judilibre, JudilibreSource::Off, "{dir}");
+            assert!(!offline.notices.contains(&Notice::InvalidJudilibre), "{dir}");
+            // La dernière ligne : après celles du BOFiP et de Service-Public.
+            assert_eq!(
+                offline.lines.last(),
+                Some(&judilibre_line(Source::Default, "off (LF_DILA_DIR is set)", LineState::Ok)),
+                "{dir}"
+            );
+            let forced = loaded(&[(DILA_DIR, dir), (JUDILIBRE, "on")]);
+            assert_eq!(forced.config.judilibre, CaseLawSource::On, "{dir}");
+            assert_eq!(forced.config.configuration.judilibre, JudilibreSource::Active, "{dir}");
+            assert_eq!(
+                forced.config.service_public,
+                ServicePublicSource::Off(SourceOff::Offline),
+                "{dir}"
+            );
+            let explicit = loaded(&[(DILA_DIR, dir), (JUDILIBRE, "off")]);
+            assert_eq!(
+                explicit.config.judilibre,
+                CaseLawSource::Off(SourceOff::Requested),
+                "{dir}"
+            );
+            let invalid = loaded(&[(DILA_DIR, dir), (JUDILIBRE, "maybe")]);
+            assert_eq!(invalid.config.judilibre, CaseLawSource::Off(SourceOff::Invalid), "{dir}");
+        }
+    }
+
+    #[test]
+    fn the_judilibre_source_names_itself_for_the_startup_log() {
+        assert_eq!(CaseLawSource::On.label(), "judilibre");
+        let off = |reason| CaseLawSource::Off(reason).label();
+        assert_eq!(off(SourceOff::Requested), "off");
+        assert_eq!(off(SourceOff::Invalid), "off (invalid value)");
+        assert_eq!(off(SourceOff::Offline), "off (LF_DILA_DIR is set)");
+    }
+
     // --- Source locale DILA (M9) ----------------------------------------------------------------
 
     #[test]
@@ -2289,9 +2476,9 @@ mod tests {
         // L'index local est un instantané ; PISTE, même avec des identifiants, n'en est pas un.
         assert!(local.config.configuration.local_snapshot);
         // La ligne de `check-config` vient après les quatorze autres, et seulement si définie ;
-        // celles de `LF_BOFIP` et de `LF_SERVICE_PUBLIC` la suivent, les deux sources étant
-        // coupées d'office en mode hors ligne.
-        assert_eq!(local.lines.len(), 17);
+        // celles de `LF_BOFIP`, `LF_SERVICE_PUBLIC` et `LF_JUDILIBRE` la suivent, les trois
+        // sources étant coupées d'office en mode hors ligne.
+        assert_eq!(local.lines.len(), 18);
         let shown = &local.lines[14];
         assert_eq!(shown.name, DILA_DIR);
         assert_eq!(shown.source, Source::Variable(DILA_DIR));
@@ -2741,6 +2928,7 @@ mod tests {
             "LF_DILA_DIR",
             "LF_BOFIP",
             "LF_SERVICE_PUBLIC",
+            "LF_JUDILIBRE",
         ];
         let legacy = [
             "FR_ELI_CLIENT_ID",

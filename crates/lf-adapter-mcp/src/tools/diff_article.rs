@@ -6,7 +6,7 @@
 
 use lf_application::{
     input::DiffArticleInput,
-    ports::{AuditLog, Clock, LegalCorpus, PublicGuidance, TaxDoctrine},
+    ports::{AuditLog, Clock, JudicialOpenData, LegalCorpus, PublicGuidance, TaxDoctrine},
 };
 use rmcp::{Json, model::JsonObject};
 use rmcp_macros::{tool, tool_router};
@@ -31,8 +31,8 @@ scheduled). `identical` is true when both dates fall in the same \
 version. To read a single version use fr_get_text.";
 
 #[tool_router(router = diff_article_router, vis = "pub(crate)")]
-impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine, G: PublicGuidance>
-    LegifranceServer<C, A, K, D, G>
+impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine, G: PublicGuidance, J: JudicialOpenData>
+    LegifranceServer<C, A, K, D, G, J>
 {
     #[tool(
         name = "fr_diff_article",

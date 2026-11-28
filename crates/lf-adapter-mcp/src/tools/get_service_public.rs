@@ -8,7 +8,7 @@
 
 use lf_application::{
     input::GetServicePublicInput,
-    ports::{AuditLog, Clock, LegalCorpus, PublicGuidance, TaxDoctrine},
+    ports::{AuditLog, Clock, JudicialOpenData, LegalCorpus, PublicGuidance, TaxDoctrine},
 };
 use rmcp::{Json, model::JsonObject};
 use rmcp_macros::{tool, tool_router};
@@ -28,8 +28,8 @@ use crate::{
 pub(crate) const DESCRIPTION: &str = "Read one Service-Public.gouv.fr practical sheet (F...) or folder (N...) by its id from fr_search_service_public, for its audience. A sheet returns its title, description, date, citation, source_url and legal_references: the Légifrance texts it relies on, with the ids that fr_get_text, fr_get_act, fr_get_convention or fr_get_decision read. A folder lists its sheets. The sheet is read from the day's archive kept in memory (downloaded once if no search came first). This is administrative guidance written for the public, not the law, and only today's version is served: read the texts in legal_references before relying on a precise point.";
 
 #[tool_router(router = get_service_public_router, vis = "pub(crate)")]
-impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine, G: PublicGuidance>
-    LegifranceServer<C, A, K, D, G>
+impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine, G: PublicGuidance, J: JudicialOpenData>
+    LegifranceServer<C, A, K, D, G, J>
 {
     #[tool(
         name = "fr_get_service_public",

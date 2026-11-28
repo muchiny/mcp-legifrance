@@ -70,6 +70,21 @@ pub(crate) const API_BASE: &str = "/dila/legifrance/lf-engine-app";
 const SEARCH_LODA: &[u8] =
     include_bytes!("../../../lf-adapter-piste/tests/fixtures/reference/search_loda.json");
 
+/// Chemin de la recherche de Judilibre, sur l'hôte de l'API PISTE (ADR-0035, décision 3).
+pub(crate) const JUDILIBRE_SEARCH: &str = "/cassation/judilibre/v1.0/search";
+
+/// Chemin de la lecture d'une décision de Judilibre.
+pub(crate) const JUDILIBRE_DECISION: &str = "/cassation/judilibre/v1.0/decision";
+
+/// Réponse de la recherche de Judilibre : trois décisions de la Cour de cassation (fixture réduite
+/// de l'adapter).
+const JUDILIBRE_SEARCH_CC: &[u8] =
+    include_bytes!("../../../lf-adapter-piste/tests/fixtures/judilibre/search-cc.json");
+
+/// Réponse de la lecture de la décision `5fca624b7eeb384a40cafb85`.
+const JUDILIBRE_DECISION_CC: &[u8] =
+    include_bytes!("../../../lf-adapter-piste/tests/fixtures/judilibre/decision-cc.json");
+
 /// Contenu d'un enregistrement de la référence, lu à la compilation.
 macro_rules! fixture {
     ($name:literal) => {
@@ -168,6 +183,22 @@ impl FakePiste {
             search = search.expect(times);
         }
         search.mount(&server).await;
+        Self { server }
+    }
+
+    /// Sert le jeton, `/search` de Légifrance (fixture LODA), puis la recherche et la lecture de
+    /// Judilibre (fixtures de la Cour de cassation) : les deux API sur le même hôte.
+    pub(crate) async fn serving_judilibre() -> Self {
+        let Self { server } = Self::serving_search().await;
+        let routes: [(&str, &'static [u8]); 2] =
+            [(JUDILIBRE_SEARCH, JUDILIBRE_SEARCH_CC), (JUDILIBRE_DECISION, JUDILIBRE_DECISION_CC)];
+        for (route, body) in routes {
+            Mock::given(method("GET"))
+                .and(path(route))
+                .respond_with(ResponseTemplate::new(200).set_body_raw(body, "application/json"))
+                .mount(&server)
+                .await;
+        }
         Self { server }
     }
 

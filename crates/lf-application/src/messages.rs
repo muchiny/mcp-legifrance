@@ -13,6 +13,7 @@ use lf_domain::{
     doctrine::{BoiId, PublicationId},
     fond::Fond,
     guidance::{Audience, SheetId},
+    judilibre::JudilibreId,
     text::is_invisible,
 };
 
@@ -20,6 +21,7 @@ use crate::{
     error::{AppError, ErrorCode, UpstreamCause},
     ports::{
         audit::AuditError,
+        case_law::CaseLawError,
         corpus::{AuthOrigin, ConfigKind, CorpusError},
         doctrine::{DoctrineError, PortalCode},
         guidance::GuidanceError,
@@ -87,6 +89,22 @@ const GUIDANCE_DECODE_MESSAGE: &str = "the Service-Public archive could not be r
 /// Message d'une archive au-delà de 64 Mio.
 const GUIDANCE_TOO_LARGE_MESSAGE: &str =
     "the Service-Public archive is too large to load (over 64 MiB); report it.";
+
+/// Message d'une source Judilibre coupée (05 §5.18, ADR-0035 décision 10) : texte fixe, rendu
+/// sans aucune E/S. Comme pour le BOFiP, il ne dit pas laquelle des causes joue, et dit ce que
+/// rouvrir la source envoie : les mots cherchés, à l'API Judilibre par PISTE.
+pub const JUDILIBRE_DISABLED_MESSAGE: &str = "the Judilibre source is turned off (LF_JUDILIBRE is off or invalid, or the server runs offline with LF_DILA_DIR): fr_search_judilibre and fr_get_judilibre are unavailable. The operator can turn it on with LF_JUDILIBRE=on; search words are then sent to the Judilibre API through PISTE.";
+
+/// Message d'un refus 403 de l'API Judilibre (05 §5.18) : l'application PISTE n'y est pas
+/// abonnée. Texte fixe de la spécification.
+pub const JUDILIBRE_NOT_SUBSCRIBED_MESSAGE: &str = "Your PISTE application is not subscribed to the Judilibre API (free): accept its terms on piste.gouv.fr and tick it in your application.";
+
+/// Message d'une réponse de Judilibre illisible ou non conforme, repris pour un `NotFound`
+/// qu'une recherche ne devrait jamais recevoir.
+const JUDILIBRE_DECODE_MESSAGE: &str = "unexpected response from Judilibre; report it.";
+
+/// Message d'une réponse de Judilibre au-delà de la borne de corps.
+const JUDILIBRE_TOO_LARGE_MESSAGE: &str = "the Judilibre answer is too large; report it.";
 
 /// Coupe `message` à `max_chars` caractères (points de code), sans jamais scinder un caractère
 /// multi-octets. Pas de points de suspension : la coupe est une borne de sûreté, pas un résumé.
@@ -527,6 +545,73 @@ fn guidance_upstream(status: Option<u16>, retryable: bool) -> AppError {
     }
 }
 
+/// Traduit une erreur du port Judilibre en `AppError` (05 §5.18, §5.19 ; ADR-0035 décision 9).
+///
+/// `missing` est la décision demandée par une lecture, que le message `not_found` cite (`None`
+/// pour une recherche). Le `match` est exhaustif. Aucun `detail` n'est recopié, sauf celui d'un
+/// `Config { kind: Settings }`, texte de la configuration ; aucun `Display` de [`CaseLawError`]
+/// n'est appelé. Aucun message ne porte un mot de la recherche.
+#[must_use]
+pub fn case_law_error(missing: Option<&JudilibreId>, error: &CaseLawError) -> AppError {
+    match error {
+        CaseLawError::Disabled => AppError::config(JUDILIBRE_DISABLED_MESSAGE),
+        CaseLawError::NotSubscribed
+        | CaseLawError::Auth { origin: AuthOrigin::Api, status: Some(403), detail: _ } => {
+            AppError::config(JUDILIBRE_NOT_SUBSCRIBED_MESSAGE)
+        }
+        CaseLawError::NotFound => missing.map_or_else(
+            || case_law_decode(JUDILIBRE_DECODE_MESSAGE),
+            |id| {
+                AppError::not_found(format!(
+                    "No Judilibre decision {id}. Search with fr_search_judilibre."
+                ))
+            },
+        ),
+        CaseLawError::RateLimited { retry_after } => rate_limited(*retry_after),
+        CaseLawError::Rejected { status: Some(status) } => AppError::Upstream {
+            message: format!("Judilibre rejected the request (HTTP {status}); report it."),
+            cause: UpstreamCause::Status(*status),
+        },
+        CaseLawError::Rejected { status: None } => {
+            case_law_decode("the request was not sent to Judilibre; report it.")
+        }
+        CaseLawError::Upstream { status, retryable, detail: _ } => {
+            case_law_upstream(*status, *retryable)
+        }
+        CaseLawError::Timeout => AppError::Upstream {
+            message: format!("Judilibre/PISTE did not answer in time{}", retry_suffix(true)),
+            cause: UpstreamCause::Timeout,
+        },
+        CaseLawError::Auth { origin, status, detail: _ } => auth(*origin, *status),
+        CaseLawError::Config { kind: ConfigKind::ApiEndpoint, detail: _ } => {
+            AppError::config("Judilibre endpoint not found: check LF_PISTE_BASE_URL.")
+        }
+        CaseLawError::Config { kind, detail } => config(*kind, detail),
+        CaseLawError::Decode { detail: _ } => case_law_decode(JUDILIBRE_DECODE_MESSAGE),
+        CaseLawError::TooLarge { detail: _ } => case_law_decode(JUDILIBRE_TOO_LARGE_MESSAGE),
+    }
+}
+
+/// Réponse de Judilibre inexploitable : non réessayable, donc sans invitation à réessayer.
+fn case_law_decode(message: &str) -> AppError {
+    AppError::Upstream { message: message.to_owned(), cause: UpstreamCause::Decode }
+}
+
+/// Panne de Judilibre ou de PISTE après les réessais. Sans statut, c'est une erreur réseau.
+fn case_law_upstream(status: Option<u16>, retryable: bool) -> AppError {
+    let suffix = retry_suffix(retryable);
+    match status {
+        Some(status) => AppError::Upstream {
+            message: format!("Judilibre/PISTE HTTP {status}{}{suffix}", status_reason(status)),
+            cause: UpstreamCause::Status(status),
+        },
+        None => AppError::Upstream {
+            message: format!("could not reach Judilibre/PISTE (connection failed){suffix}"),
+            cause: UpstreamCause::Network,
+        },
+    }
+}
+
 /// Longueur maximale, en caractères, d'une valeur de l'utilisateur recopiée dans un message
 /// (E-27, 03 §2.7) : au-delà, la valeur est coupée et suivie de `…`.
 const SHOWN_MAX_CHARS: usize = 64;
@@ -684,6 +769,7 @@ pub fn domain_arg(tool: ToolName, arg: Option<&'static str>, error: &DomainError
         DomainError::InvalidBoiId { input, .. } => invalid_boi_id(id, input),
         DomainError::InvalidSerie { input, .. } => invalid_serie(input),
         DomainError::InvalidSheetId { input, .. } => invalid_sheet_id(id, input),
+        DomainError::InvalidJudilibreId { input, .. } => invalid_judilibre_id(id, input),
         DomainError::QueryWithoutWords => invalid_argument(QUERY_WITHOUT_WORDS),
         DomainError::HitKindMismatch { .. }
         | DomainError::TocTooDeep { .. }
@@ -716,6 +802,16 @@ fn invalid_sheet_id(id: &str, input: &str) -> AppError {
     ))
 }
 
+/// Identifiant qui n'a pas la forme d'un identifiant de Judilibre (05 §5.19) : l'argument est
+/// nommé, la valeur recopiée sous forme sûre, et le message dit où en trouver un.
+fn invalid_judilibre_id(id: &str, input: &str) -> AppError {
+    invalid_argument(format!(
+        "{id}='{}' is not a Judilibre id (24 hexadecimal characters, e.g. \
+         5fca624b7eeb384a40cafb85); find one with fr_search_judilibre.",
+        shown(input)
+    ))
+}
+
 /// Code de série mal formé (05 §5.14). Un code bien formé mais inconnu n'est pas une erreur : la
 /// recherche rend alors zéro résultat.
 fn invalid_serie(input: &str) -> AppError {
@@ -731,6 +827,9 @@ fn invalid_serie(input: &str) -> AppError {
 fn narrow_hint(tool: ToolName) -> &'static str {
     match tool {
         ToolName::FR_SEARCH_BOFIP => "narrow the query with more words or with serie.",
+        ToolName::FR_SEARCH_JUDILIBRE => {
+            "narrow the query with match, courts, part or date_from/date_to."
+        }
         _ => "narrow the query with match or date_from/date_to.",
     }
 }
@@ -1187,6 +1286,9 @@ mod tests {
             // (`guidance_error`), dont le `not_found` nomme l'autre public.
             ToolName::FR_SEARCH_SERVICE_PUBLIC,
             ToolName::FR_GET_SERVICE_PUBLIC,
+            // Judilibre : leurs erreurs viennent de `CaseLawError` (`case_law_error`).
+            ToolName::FR_SEARCH_JUDILIBRE,
+            ToolName::FR_GET_JUDILIBRE,
         ];
         for tool in ToolName::ALL {
             assert!(
@@ -2405,6 +2507,25 @@ mod tests {
                 )
             );
         }
+        assert_eq!(
+            domain(ToolName::FR_SEARCH_JUDILIBRE, &error),
+            invalid(
+                "page=200 with page_size=100 goes beyond the 10000 reachable results; narrow the \
+                 query with match, courts, part or date_from/date_to."
+            )
+        );
+    }
+
+    #[test]
+    fn an_invalid_judilibre_id_names_the_argument_and_the_search_tool() {
+        let error = lf_domain::judilibre::JudilibreId::parse("JURITEXT000045653019\n").unwrap_err();
+        assert_eq!(
+            domain(ToolName::FR_GET_JUDILIBRE, &error),
+            invalid(
+                "id='JURITEXT000045653019\\n' is not a Judilibre id (24 hexadecimal characters, \
+                 e.g. 5fca624b7eeb384a40cafb85); find one with fr_search_judilibre."
+            )
+        );
     }
 
     /// Les neuf variantes du port de Service-Public, avec le code, la cause et le message
@@ -2559,5 +2680,162 @@ mod tests {
                 }
             );
         }
+    }
+
+    /// Les variantes du port Judilibre, avec le code, la cause et le message attendus pour une
+    /// lecture de 5fca624b7eeb384a40cafb85.
+    fn case_law_rows() -> Vec<(CaseLawError, ErrorCode, Option<UpstreamCause>, String)> {
+        let detail = || SENTINEL.to_owned();
+        let mut rows = vec![
+            (
+                CaseLawError::Disabled,
+                ErrorCode::ConfigError,
+                None,
+                JUDILIBRE_DISABLED_MESSAGE.to_owned(),
+            ),
+            (
+                CaseLawError::NotSubscribed,
+                ErrorCode::ConfigError,
+                None,
+                "Your PISTE application is not subscribed to the Judilibre API (free): accept its \
+                 terms on piste.gouv.fr and tick it in your application."
+                    .to_owned(),
+            ),
+            (
+                CaseLawError::Auth { origin: AuthOrigin::Api, status: Some(403), detail: detail() },
+                ErrorCode::ConfigError,
+                None,
+                JUDILIBRE_NOT_SUBSCRIBED_MESSAGE.to_owned(),
+            ),
+            (
+                CaseLawError::NotFound,
+                ErrorCode::NotFound,
+                None,
+                "No Judilibre decision 5fca624b7eeb384a40cafb85. Search with fr_search_judilibre."
+                    .to_owned(),
+            ),
+        ];
+        rows.extend(case_law_upstream_rows());
+        rows
+    }
+
+    /// Suite de [`case_law_rows`] : quota, refus, pannes et réponses illisibles.
+    fn case_law_upstream_rows() -> Vec<(CaseLawError, ErrorCode, Option<UpstreamCause>, String)> {
+        let detail = || SENTINEL.to_owned();
+        vec![
+            (
+                CaseLawError::RateLimited { retry_after: Some(Duration::from_millis(1_500)) },
+                ErrorCode::RateLimited,
+                None,
+                "PISTE quota reached; retry in 2 s.".to_owned(),
+            ),
+            (
+                CaseLawError::Rejected { status: Some(423) },
+                ErrorCode::UpstreamError,
+                Some(UpstreamCause::Status(423)),
+                "Judilibre rejected the request (HTTP 423); report it.".to_owned(),
+            ),
+            (
+                CaseLawError::Rejected { status: None },
+                ErrorCode::UpstreamError,
+                Some(UpstreamCause::Decode),
+                "the request was not sent to Judilibre; report it.".to_owned(),
+            ),
+            (
+                CaseLawError::Upstream { status: Some(503), retryable: true, detail: detail() },
+                ErrorCode::UpstreamError,
+                Some(UpstreamCause::Status(503)),
+                "Judilibre/PISTE HTTP 503 (service unavailable); retry once, then report it."
+                    .to_owned(),
+            ),
+            (
+                CaseLawError::Upstream { status: None, retryable: false, detail: detail() },
+                ErrorCode::UpstreamError,
+                Some(UpstreamCause::Network),
+                "could not reach Judilibre/PISTE (connection failed); report it.".to_owned(),
+            ),
+            (
+                CaseLawError::Timeout,
+                ErrorCode::UpstreamError,
+                Some(UpstreamCause::Timeout),
+                "Judilibre/PISTE did not answer in time; retry once, then report it.".to_owned(),
+            ),
+            (
+                CaseLawError::Auth {
+                    origin: AuthOrigin::Token,
+                    status: Some(401),
+                    detail: detail(),
+                },
+                ErrorCode::ConfigError,
+                None,
+                "PISTE rejected the credentials (HTTP 401): check LF_PISTE_CLIENT_ID, \
+                 LF_PISTE_CLIENT_SECRET and LF_PISTE_ENV."
+                    .to_owned(),
+            ),
+            (
+                CaseLawError::Config { kind: ConfigKind::ApiEndpoint, detail: detail() },
+                ErrorCode::ConfigError,
+                None,
+                "Judilibre endpoint not found: check LF_PISTE_BASE_URL.".to_owned(),
+            ),
+            (
+                CaseLawError::Config { kind: ConfigKind::CredentialsMissing, detail: detail() },
+                ErrorCode::ConfigError,
+                None,
+                "PISTE credentials missing: set LF_PISTE_CLIENT_ID and LF_PISTE_CLIENT_SECRET \
+                 (from your piste.gouv.fr application, section OAuth Credentials)."
+                    .to_owned(),
+            ),
+            (
+                CaseLawError::Decode { detail: detail() },
+                ErrorCode::UpstreamError,
+                Some(UpstreamCause::Decode),
+                "unexpected response from Judilibre; report it.".to_owned(),
+            ),
+            (
+                CaseLawError::TooLarge { detail: detail() },
+                ErrorCode::UpstreamError,
+                Some(UpstreamCause::Decode),
+                "the Judilibre answer is too large; report it.".to_owned(),
+            ),
+        ]
+    }
+
+    #[test]
+    fn case_law_errors_map_to_their_codes_and_texts() {
+        let id = JudilibreId::parse("5fca624b7eeb384a40cafb85").unwrap();
+        for (error, code, cause, message) in case_law_rows() {
+            let app = case_law_error(Some(&id), &error);
+            assert_eq!(view(&app), (Some(code), cause, message.as_str()), "{error:?}");
+        }
+    }
+
+    /// Aucun message de Judilibre ne nomme Légifrance ni ne recopie un `detail` du port.
+    #[test]
+    fn case_law_messages_never_echo_a_detail_nor_name_legifrance() {
+        let id = JudilibreId::parse("63c8eefddc5b777c90992fd8").unwrap();
+        for (error, _, _, _) in case_law_rows() {
+            for missing in [None, Some(&id)] {
+                let app = case_law_error(missing, &error);
+                let text = app.message();
+                for word in
+                    ["Legifrance", "Légifrance", "example.invalid", "client_secret", "Bearer"]
+                {
+                    assert!(!text.contains(word), "{text}");
+                }
+                assert!(text.chars().count() <= 400, "{text}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_search_never_receives_a_case_law_not_found_and_falls_back_to_decode() {
+        assert_eq!(
+            case_law_error(None, &CaseLawError::NotFound),
+            expected_upstream(
+                UpstreamCause::Decode,
+                "unexpected response from Judilibre; report it."
+            )
+        );
     }
 }

@@ -20,7 +20,7 @@ pub(crate) const INSTRUCTIONS_MAX_CHARS: usize = 4_000;
 /// Plafond d'une description d'outil, en caractères (05 §6.6).
 const DESCRIPTION_MAX_CHARS: usize = 1_000;
 
-/// Annotations exigées sur les 17 outils (05 §5.0.1) : nom et valeur.
+/// Annotations exigées sur les 19 outils (05 §5.0.1) : nom et valeur.
 const HINTS: [(&str, bool); 4] = [
     ("readOnlyHint", true),
     ("destructiveHint", false),
@@ -36,9 +36,11 @@ const HINTS: [(&str, bool); 4] = [
 /// 35 424 octets (36 486,72 avec 3 %), soit 36 500. Le jalon MB (AM-93) ajoute les deux outils du
 /// BOFiP à la surface v0.3 : 41 878 octets mesurés sur les quinze outils (43 134,34 avec 3 %), soit
 /// 43 200. Le jalon MS (ADR-0033, décision 14) y ajoute les deux outils de Service-Public : 49 792
-/// octets mesurés sur les dix-sept outils (51 285,76 avec 3 %), soit 51 300. Le test
-/// `descriptor_size_budget` de `lf-adapter-mcp` porte la même valeur.
-const TOOLS_LIST_BUDGETS: [usize; 3] = [20_000, 24_000, 51_300];
+/// octets mesurés sur les dix-sept outils (51 285,76 avec 3 %), soit 51 300. Le jalon MJ
+/// (ADR-0035, décision 13) y ajoute les deux outils de Judilibre : 57 244 octets mesurés sur les
+/// dix-neuf outils (58 961,32 avec 3 %), soit 59 000. Le test `descriptor_size_budget` de
+/// `lf-adapter-mcp` porte la même valeur.
+const TOOLS_LIST_BUDGETS: [usize; 3] = [20_000, 24_000, 59_000];
 
 /// Outils qui n'existent qu'à partir de v0.2 (M6) et de v0.3 (M7) : ils fixent le budget.
 const V02_TOOLS: [&str; 2] = ["fr_verify_citations", "fr_resolve"];
@@ -837,7 +839,7 @@ mod tests {
             run(&v01, VERSION).errors,
             ["tools/list is 20001 bytes, over the 20000 bytes budget (05 §6.6)"]
         );
-        for (extra, budget) in [("fr_resolve", 24_000), ("fr_search_all", 51_300)] {
+        for (extra, budget) in [("fr_resolve", 24_000), ("fr_search_all", 59_000)] {
             let mut bigger = surface();
             bigger.tools.insert(extra.to_owned(), tool(extra));
             padded(&mut bigger, budget);

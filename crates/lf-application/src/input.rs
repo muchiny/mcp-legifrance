@@ -277,6 +277,40 @@ pub struct GetServicePublicInput {
     pub reading: ReadingInput,
 }
 
+/// Arguments de `fr_search_judilibre` (05 §5.18).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SearchJudilibreInput {
+    /// Mots cherchés, de 1 à 450 caractères après rognage.
+    pub query: Option<String>,
+    /// Mode de correspondance (`match` côté MCP) : `any`, `all` (défaut) ou `exact`.
+    pub match_mode: Option<String>,
+    /// Juridictions (`cc`, `ca`, `tj`, `tcom`, `cph`), de 1 à 5 distinctes ; absent : les cinq.
+    pub courts: Option<Vec<String>>,
+    /// Partie où chercher ; absent : tout le texte.
+    pub part: Option<String>,
+    /// Date de décision la plus ancienne, `AAAA-MM-JJ`.
+    pub date_from: Option<String>,
+    /// Date de décision la plus récente, `AAAA-MM-JJ`.
+    pub date_to: Option<String>,
+    /// Ordre : `relevance` (défaut) ou `date`.
+    pub sort: Option<String>,
+    /// Numéro de page, à partir de 1.
+    pub page: Option<i64>,
+    /// Résultats par page, de 1 à 50.
+    pub page_size: Option<i64>,
+}
+
+/// Arguments de `fr_get_judilibre` (05 §5.19).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct GetJudilibreInput {
+    /// Identifiant de la décision : 24 caractères hexadécimaux.
+    pub id: Option<String>,
+    /// Partie à lire ; absente : la décision entière.
+    pub part: Option<String>,
+    /// Paramètres de lecture.
+    pub reading: ReadingInput,
+}
+
 /// Lecture d'une resource MCP (05 §8).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ResourceInput {

@@ -7,6 +7,7 @@
 
 use std::future::Future;
 
+use crate::ports::JudicialOpenData;
 use crate::{
     audited::CallMeta,
     error::AppError,
@@ -19,8 +20,8 @@ use crate::{
 
 use super::LegalService;
 
-impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine, G: PublicGuidance>
-    LegalService<C, A, K, D, G>
+impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine, G: PublicGuidance, J: JudicialOpenData>
+    LegalService<C, A, K, D, G, J>
 {
     /// `fr_get_bofip` : lecture d'une publication du BOFiP, en résumé, en fenêtre de texte ou en
     /// passages, ou liste des publications qui portent l'identifiant (05 §5.15). Métrique

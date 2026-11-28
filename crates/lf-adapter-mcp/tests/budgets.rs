@@ -58,6 +58,10 @@ mod budgets {
             AccoTextId, ArticleId, CnilTextId, DecisionId, DocumentId, KaliTextId, LegiArtiId,
             LegiTextId,
         },
+        judilibre::{
+            CaseLawDoc, CaseLawHit, CaseLawMention, CaseLawPage, Court, JudilibreId,
+            RelatedDecision, Zones,
+        },
         status::LegalStatus,
         text::LongText,
     };
@@ -516,6 +520,79 @@ mod budgets {
             .filter(|hit| {
                 let title = hit["title"].as_str().unwrap();
                 title.ends_with('…') && title.chars().count() == 120
+            })
+            .count()
+    }
+
+    /// Les mentions d'une décision de la cour d'appel de Paris.
+    fn appeal_mention() -> CaseLawMention {
+        CaseLawMention {
+            court: "Cour d'appel de Paris".to_owned(),
+            chamber: Some("Pôle 3 - Chambre 1".to_owned()),
+            formation: None,
+            date: "2023-01-18".to_owned(),
+        }
+    }
+
+    /// Un résultat de Judilibre de cour d'appel, numéroté `n`, au sommaire `summary`.
+    fn case_law_hit(n: u32, summary: String) -> CaseLawHit {
+        CaseLawHit {
+            id: JudilibreId::parse(&format!("{n:024x}")).unwrap(),
+            jurisdiction: Court::Appeal,
+            mention: appeal_mention(),
+            number: Some("20/17369".to_owned()),
+            ecli: None,
+            solution: Some("Infirmation".to_owned()),
+            publication: None,
+            summary: Some(summary),
+            excerpt: None,
+            themes: vec!["Donation".to_owned()],
+        }
+    }
+
+    /// Une page de 50 résultats de Judilibre (le plus que permet `page_size`) et le coût brut de
+    /// leurs sommaires.
+    fn case_law_page(summary: impl Fn(u32) -> String) -> (CaseLawPage, Raw) {
+        let summaries: Vec<String> = (1..=50).map(summary).collect();
+        let raw =
+            Raw::of(summaries.iter().map(String::as_str)).with_each(50, CASE_LAW_HIT_FIXED_CHARS);
+        let hits = (1..=50).zip(summaries).map(|(n, summary)| case_law_hit(n, summary)).collect();
+        (CaseLawPage { total: 1_000, hits }, raw)
+    }
+
+    /// JSON d'un résultat de Judilibre hors sommaire, arrondi bas (environ 280).
+    const CASE_LAW_HIT_FIXED_CHARS: usize = 250;
+
+    /// Une décision de Judilibre : le texte `text`, sans zones, avec les visas et rapprochements
+    /// donnés.
+    fn case_law_doc(text: String, visa: Vec<String>, related: Vec<RelatedDecision>) -> CaseLawDoc {
+        CaseLawDoc {
+            id: JudilibreId::parse("63c8eefddc5b777c90992fd8").unwrap(),
+            jurisdiction: Court::Appeal,
+            mention: appeal_mention(),
+            number: Some("20/17369".to_owned()),
+            ecli: None,
+            solution: Some("Infirmation".to_owned()),
+            publication: None,
+            themes: Vec::new(),
+            summary: None,
+            text,
+            zones: Zones::default(),
+            visa,
+            related,
+            contested: None,
+            updated: None,
+            partial: false,
+            to_be_deleted: false,
+        }
+    }
+
+    /// Les sommaires raccourcis d'une page de Judilibre : 300 caractères, `…` compris.
+    fn shortened_summaries(hits: &[Value]) -> usize {
+        hits.iter()
+            .filter(|hit| {
+                let summary = hit["summary"].as_str().unwrap();
+                summary.ends_with('…') && summary.chars().count() == 300
             })
             .count()
     }
@@ -1295,6 +1372,108 @@ mod budgets {
                     assert_eq!(entries.len(), 100);
                     assert!(observed.value.get("text").is_none());
                     json!({"entries": entries.len(), "chars": observed.chars})
+                },
+            },
+            // ---- fr_search_judilibre et fr_get_judilibre ---------------------------------------
+            Case {
+                name: "judilibre_search_50_hits_with_2000_char_summaries",
+                tool: "fr_search_judilibre",
+                arguments: json!({"query": "donation", "page_size": 50}),
+                extreme: Extreme::OverTheCap,
+                setup: |fixture| {
+                    let (page, raw) = case_law_page(|n| format!("{n} {}", "é".repeat(1_995)));
+                    fixture.case_law.push_search(Ok(page));
+                    raw
+                },
+                check: |observed| {
+                    // Aucun résultat n'est retiré : les derniers sommaires sont raccourcis, et la
+                    // note dit exactement combien (05 §5.18, §6.4).
+                    let hits = hits_of(observed);
+                    assert_eq!(hits.len(), 50, "aucun résultat n'est retiré");
+                    let shortened = shortened_summaries(hits);
+                    assert!((1..50).contains(&shortened), "{shortened}");
+                    assert_eq!(shortened_summaries(&hits[50 - shortened..]), shortened);
+                    assert!(
+                        observed
+                            .note()
+                            .starts_with(&format!("{shortened} long summaries were shortened")),
+                        "{}",
+                        observed.note()
+                    );
+                    assert!(observed.chars <= TARGET, "{}", observed.chars);
+                    json!({"hits": hits.len(), "summaries_shortened": shortened})
+                },
+            },
+            Case {
+                name: "judilibre_search_50_hits_with_escape_rich_summaries",
+                tool: "fr_search_judilibre",
+                arguments: json!({"query": "donation", "page_size": 50}),
+                extreme: Extreme::OverTheCap,
+                setup: |fixture| {
+                    let (page, raw) = case_law_page(|_| nasty(2_000));
+                    fixture.case_law.push_search(Ok(page));
+                    raw
+                },
+                check: |observed| {
+                    // Même raccourcis à 300 caractères, cinquante sommaires riches en
+                    // échappements ne tiennent pas : la page est refusée en bande, avec la
+                    // `page_size` qui tient, plutôt que de perdre un résultat.
+                    let error = observed.error.as_deref().expect("a refusal");
+                    assert!(
+                        error.starts_with("[invalid_arg] page_size=50 would exceed"),
+                        "{error}"
+                    );
+                    let largest = suggested_page_size(error);
+                    assert!((1..50).contains(&largest), "{largest}");
+                    json!({"largest_page_size": largest})
+                },
+            },
+            Case {
+                name: "judilibre_get_40000_char_escape_rich_window",
+                tool: "fr_get_judilibre",
+                arguments: json!({
+                    "id": "63c8eefddc5b777c90992fd8", "detail": "full", "max_chars": 40_000
+                }),
+                extreme: Extreme::OverTheCap,
+                setup: |fixture| {
+                    let text = nasty_paragraphs(6_500);
+                    let raw = Raw::of([window_of(&text, 40_000).as_str()]);
+                    fixture.case_law.push_get(Ok(case_law_doc(text, Vec::new(), Vec::new())));
+                    raw
+                },
+                check: reading_window,
+            },
+            Case {
+                name: "judilibre_get_with_150_long_visas_and_100_long_related",
+                tool: "fr_get_judilibre",
+                arguments: json!({"id": "63c8eefddc5b777c90992fd8"}),
+                extreme: Extreme::OverTheCap,
+                setup: |fixture| {
+                    // Une réponse amont anormale : des liens au-delà du plafond. Les derniers
+                    // rapprochements, puis les derniers visas, sont retirés et la note le dit ;
+                    // le texte, plus léger que les liens, reste entier.
+                    let title = "é".repeat(400);
+                    let visa = vec![title.clone(); 150];
+                    let related = vec![RelatedDecision::from_html(&title); 100];
+                    let raw = Raw::of(visa.iter().chain([&title; 100]).map(String::as_str));
+                    let doc = case_law_doc(prose(10), visa, related);
+                    fixture.case_law.push_get(Ok(doc));
+                    raw
+                },
+                check: |observed| {
+                    let visa = observed.value["visa"].as_array().expect("a list");
+                    assert!((1..150).contains(&visa.len()), "{}", visa.len());
+                    assert_eq!(observed.value["text"].as_str(), Some(prose(10).trim_end()));
+                    assert!(observed.value.get("next_offset").is_none());
+                    assert!(observed.value.get("related").is_none());
+                    assert!(
+                        observed.note().contains(
+                            "Some related decisions or applied texts were left out to fit"
+                        ),
+                        "{}",
+                        observed.note()
+                    );
+                    json!({"visa": visa.len(), "related": 0})
                 },
             },
             // ---- fr_coverage ------------------------------------------------------------------
@@ -2148,14 +2327,16 @@ mod budgets {
     /// centaine supérieure, soit 36 500. Le jalon MB (AM-93) ajoute les deux outils du BOFiP :
     /// 41 878 octets mesurés sur les quinze outils, plus 3 % (43 134,34), soit 43 200. Le jalon
     /// MS (ADR-0033, décision 14) ajoute les deux outils de Service-Public : 49 792 octets mesurés
-    /// sur les dix-sept outils, plus 3 % (51 285,76), soit 51 300. La même valeur est dans
-    /// `TOOLS_LIST_BUDGETS` de `xtask` (`lock-descriptors`), qui mesure le même JSON canonique.
+    /// sur les dix-sept outils, plus 3 % (51 285,76), soit 51 300. Le jalon MJ (ADR-0035,
+    /// décision 13) ajoute les deux outils de Judilibre : 57 244 octets mesurés sur les dix-neuf
+    /// outils, plus 3 % (58 961,32), soit 59 000. La même valeur est dans `TOOLS_LIST_BUDGETS` de
+    /// `xtask` (`lock-descriptors`), qui mesure le même JSON canonique.
     #[tokio::test]
     async fn descriptor_size_budget() {
         let client = Fixture::default().connect().await;
         let tools = client.list_all_tools().await.unwrap();
         let bytes = serde_json::to_vec(&tools).unwrap().len();
-        assert!(bytes <= 51_300, "tools/list: {bytes} bytes");
+        assert!(bytes <= 59_000, "tools/list: {bytes} bytes");
         for tool in &tools {
             let description = tool.description.as_deref().unwrap_or("");
             assert!(description.chars().count() <= 1_000, "{}: {description}", tool.name);

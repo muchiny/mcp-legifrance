@@ -1,0 +1,97 @@
+---
+source: crates/lf-adapter-mcp/src/params/search_judilibre.rs
+expression: schema()
+---
+{
+  "additionalProperties": false,
+  "properties": {
+    "courts": {
+      "default": [
+        "cc",
+        "ca",
+        "tj",
+        "tcom",
+        "cph"
+      ],
+      "description": "Courts: cc (Cour de cassation), ca (courts of appeal), tj (judicial courts), tcom (commercial courts), cph (labour courts). Default: all five.",
+      "items": {
+        "enum": [
+          "cc",
+          "ca",
+          "tj",
+          "tcom",
+          "cph"
+        ],
+        "type": "string"
+      },
+      "maxItems": 5,
+      "minItems": 1,
+      "type": "array",
+      "uniqueItems": true
+    },
+    "date_from": {
+      "description": "Earliest decision date YYYY-MM-DD.",
+      "format": "date",
+      "type": "string"
+    },
+    "date_to": {
+      "description": "Latest decision date YYYY-MM-DD.",
+      "format": "date",
+      "type": "string"
+    },
+    "match": {
+      "default": "all",
+      "description": "\"all\": all words (default); \"any\": any word; \"exact\": exact phrase.",
+      "enum": [
+        "any",
+        "all",
+        "exact"
+      ],
+      "type": "string"
+    },
+    "page": {
+      "default": 1,
+      "description": "Page number, from 1; page x page_size at most 10000.",
+      "minimum": 1,
+      "type": "integer"
+    },
+    "page_size": {
+      "default": 10,
+      "description": "Hits per page (1..50).",
+      "maximum": 50,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "part": {
+      "description": "Search only this part of the decisions (slower, especially motivations). Default: the whole text.",
+      "enum": [
+        "motivations",
+        "dispositif",
+        "expose",
+        "moyens",
+        "summary",
+        "visa"
+      ],
+      "type": "string"
+    },
+    "query": {
+      "description": "A few plain words, matched in the decisions (Judilibre search engine).",
+      "maxLength": 450,
+      "minLength": 1,
+      "type": "string"
+    },
+    "sort": {
+      "default": "relevance",
+      "description": "\"relevance\" (default) or \"date\" (newest first).",
+      "enum": [
+        "relevance",
+        "date"
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "query"
+  ],
+  "type": "object"
+}

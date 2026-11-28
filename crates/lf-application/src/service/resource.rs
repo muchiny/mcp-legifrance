@@ -13,6 +13,7 @@
 use std::future::Future;
 
 use super::LegalService;
+use crate::ports::JudicialOpenData;
 use crate::{
     audited::CallMeta,
     error::AppError,
@@ -23,8 +24,8 @@ use crate::{
     usecase::resource::{ResourceRef, ResourceUseCase},
 };
 
-impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine, G: PublicGuidance>
-    LegalService<C, A, K, D, G>
+impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine, G: PublicGuidance, J: JudicialOpenData>
+    LegalService<C, A, K, D, G, J>
 {
     /// Lit la resource `legifrance://...` désignée par `call`. `cancel` se résout quand le client
     /// annule.

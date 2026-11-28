@@ -2,8 +2,8 @@
 //!
 //! [`FakeCorpus`] rejoue des réponses programmées et note chaque appel avec ses arguments
 //! ([`PortRequest`]), [`FakeDoctrine`] fait de même pour le port de doctrine
-//! ([`DoctrineRequest`]) et [`FakeGuidance`] pour celui de Service-Public ([`GuidanceRequest`]),
-//! [`FixedClock`] fige l'heure, [`MemoryAuditLog`] garde les lignes écrites
+//! ([`DoctrineRequest`]), [`FakeGuidance`] pour celui de Service-Public ([`GuidanceRequest`]) et
+//! [`FakeCaseLaw`] pour celui de Judilibre ([`CaseLawRequest`]), [`FixedClock`] fige l'heure, [`MemoryAuditLog`] garde les lignes écrites
 //! et [`FailingAuditLog`] échoue toujours. Les doublures servent aux tests de ce crate (`cfg(test)`)
 //! et, par la feature, aux dev-dependencies des autres membres : `cargo xtask check-arch` (R10)
 //! interdit de l'activer en dépendance normale, aucun binaire ne les embarque.
@@ -33,15 +33,16 @@ use lf_domain::{
     },
     guidance::{Audience, GuidanceQuery, SheetId},
     id::{AccoTextId, ArticleId, CnilTextId, DecisionId, KaliTextId, LegiTextId},
+    judilibre::{CaseLawDoc, CaseLawPage, CaseLawQuery, JudilibreId},
     search::{NumberQuery, SearchQuery},
 };
 
 use crate::{
     deadline::Deadline,
     ports::{
-        ArticleAt, AuditError, AuditErrorKind, AuditLog, AuditRecord, Clock, ConfigKind,
-        CorpusError, DoctrineError, GuidanceError, GuidanceFound, GuidanceRead, LegalCorpus,
-        PublicGuidance, TaxDoctrine,
+        ArticleAt, AuditError, AuditErrorKind, AuditLog, AuditRecord, CaseLawError, Clock,
+        ConfigKind, CorpusError, DoctrineError, GuidanceError, GuidanceFound, GuidanceRead,
+        JudicialOpenData, LegalCorpus, PublicGuidance, TaxDoctrine,
     },
 };
 
@@ -545,6 +546,93 @@ impl PublicGuidance for FakeGuidance {
     }
 }
 
+/// Un appel reçu par [`FakeCaseLaw`] : la méthode du port et une copie de ses arguments.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CaseLawRequest {
+    /// `search(query)`.
+    Search(CaseLawQuery),
+    /// `get(id)`.
+    Get(JudilibreId),
+}
+
+/// File de réponses d'une méthode du port Judilibre.
+type CaseLawResponses<T> = Mutex<VecDeque<Result<T, CaseLawError>>>;
+
+/// Fausse source Judilibre : une file de réponses par méthode du port, rejouées dans l'ordre,
+/// comme [`FakeDoctrine`].
+///
+/// Une file vide rend un `Decode` qui nomme la méthode. Chaque appel est noté avec ses arguments
+/// ([`FakeCaseLaw::seen_requests`]).
+#[derive(Default)]
+pub struct FakeCaseLaw {
+    search: CaseLawResponses<CaseLawPage>,
+    get: CaseLawResponses<CaseLawDoc>,
+    /// Chaque appel reçu, dans l'ordre des appels.
+    requests: Mutex<Vec<CaseLawRequest>>,
+}
+
+impl FakeCaseLaw {
+    /// Fausse source sans réponse programmée.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Programme la prochaine réponse de `search`.
+    pub fn push_search(&self, response: Result<CaseLawPage, CaseLawError>) {
+        lock(&self.search).push_back(response);
+    }
+
+    /// Programme la prochaine réponse de `get`.
+    pub fn push_get(&self, response: Result<CaseLawDoc, CaseLawError>) {
+        lock(&self.get).push_back(response);
+    }
+
+    /// Nombre total d'appels reçus, toutes méthodes confondues.
+    #[must_use]
+    pub fn calls(&self) -> usize {
+        lock(&self.requests).len()
+    }
+
+    /// Chaque appel reçu, avec une copie de ses arguments, dans l'ordre des appels.
+    #[must_use]
+    pub fn seen_requests(&self) -> Vec<CaseLawRequest> {
+        lock(&self.requests).clone()
+    }
+
+    /// Note l'appel, puis rend la réponse suivante de la file, ou un `Decode` qui nomme `method`.
+    fn serve<T>(
+        &self,
+        request: CaseLawRequest,
+        responses: &CaseLawResponses<T>,
+        method: &str,
+    ) -> Result<T, CaseLawError> {
+        lock(&self.requests).push(request);
+        lock(responses).pop_front().unwrap_or_else(|| {
+            Err(CaseLawError::Decode {
+                detail: format!("FakeCaseLaw: no response programmed for {method}"),
+            })
+        })
+    }
+}
+
+/// La fausse source n'attend rien : chaque méthode rend un futur déjà prêt.
+impl JudicialOpenData for FakeCaseLaw {
+    fn search(
+        &self,
+        query: &CaseLawQuery,
+    ) -> impl Future<Output = Result<CaseLawPage, CaseLawError>> + Send {
+        ready(self.serve(CaseLawRequest::Search(query.clone()), &self.search, "search"))
+    }
+
+    fn get(
+        &self,
+        id: &JudilibreId,
+    ) -> impl Future<Output = Result<CaseLawDoc, CaseLawError>> + Send {
+        ready(self.serve(CaseLawRequest::Get(id.clone()), &self.get, "get"))
+    }
+}
+
 /// Horloge figée : reçoit ses deux valeurs, pour que `lf-application` n'ait pas besoin de
 /// `chrono-tz` (R2, 02 §5.3).
 #[derive(Debug, Clone, Copy)]
@@ -781,6 +869,168 @@ pub(crate) mod fixtures {
                 PageSize::DEFAULT,
             )
             .unwrap()
+        }
+    }
+
+    /// Valeurs de Judilibre pour les tests du crate : décisions de la Cour de cassation et d'une
+    /// cour d'appel, inventées (aucun nom de personne), à la forme des relevés du 2026-11-27.
+    pub(crate) mod judilibre {
+        use std::num::NonZeroU32;
+
+        use lf_domain::{
+            judilibre::{
+                CaseLawDoc, CaseLawFilters, CaseLawHit, CaseLawMention, CaseLawPage, CaseLawQuery,
+                CaseLawSort, ContestedDecision, Court, CourtSet, DecisionPart, JudilibreId,
+                RelatedDecision, ZoneSpan, Zones,
+            },
+            search::{MatchMode, PageSize, QueryText},
+        };
+
+        /// Décision de test de la Cour de cassation.
+        pub(crate) const CC_ID: &str = "5fca624b7eeb384a40cafb85";
+        /// Décision de test d'une cour d'appel.
+        pub(crate) const CA_ID: &str = "63c8eefddc5b777c90992fd8";
+
+        /// Texte de la décision de test, découpé en cinq parties par [`zones`].
+        pub(crate) const TEXT: &str = "Arrêt du 2 décembre 2020 - Cour de cassation - Première \
+            chambre civile\n\nRÉPUBLIQUE FRANÇAISE\n\nFaits et procédure\n\n1. Selon l'arrêt \
+            attaqué, une donation a été consentie.\n\nExamen du moyen\n\n2. Le donateur fait \
+            grief à l'arrêt de rejeter sa demande.\n\nRéponse de la Cour\n\n3. Vu l'article 894 \
+            du code civil, la donation est un acte irrévocable.\n\nPAR CES MOTIFS, la Cour :\n\n\
+            CASSE ET ANNULE, en toutes ses dispositions, l'arrêt rendu le 4 juin 2019.";
+
+        /// Début de chaque partie de [`TEXT`], dans l'ordre du texte.
+        const STARTS: [(DecisionPart, &str); 5] = [
+            (DecisionPart::Introduction, "Arrêt du"),
+            (DecisionPart::Expose, "Faits et procédure"),
+            (DecisionPart::Moyens, "Examen du moyen"),
+            (DecisionPart::Motivations, "Réponse de la Cour"),
+            (DecisionPart::Dispositif, "PAR CES MOTIFS"),
+        ];
+
+        /// Identifiant `raw`, validé.
+        pub(crate) fn id(raw: &str) -> JudilibreId {
+            JudilibreId::parse(raw).unwrap()
+        }
+
+        /// Position UTF-16 du début de `needle` dans [`TEXT`].
+        fn units(needle: &str) -> u32 {
+            let byte = TEXT.find(needle).unwrap();
+            u32::try_from(TEXT.get(..byte).unwrap().encode_utf16().count()).unwrap()
+        }
+
+        /// Zones de [`TEXT`] : chaque partie va de son début à celui de la suivante ; la dernière
+        /// finit une unité après le texte, comme dans les décisions lues.
+        pub(crate) fn zones() -> Zones {
+            let end = u32::try_from(TEXT.encode_utf16().count()).unwrap().saturating_add(1);
+            let starts: Vec<(DecisionPart, u32)> =
+                STARTS.iter().map(|(part, needle)| (*part, units(needle))).collect();
+            let ends = starts.iter().skip(1).map(|(_, start)| *start).chain([end]);
+            Zones::of(
+                starts
+                    .iter()
+                    .zip(ends)
+                    .map(|((part, start), end)| (*part, ZoneSpan { start: *start, end })),
+            )
+        }
+
+        /// Filtres par défaut de l'outil : tous les mots, les cinq juridictions, par pertinence.
+        pub(crate) fn filters() -> CaseLawFilters {
+            CaseLawFilters {
+                mode: MatchMode::All,
+                courts: CourtSet::ALL,
+                part: None,
+                date_from: None,
+                date_to: None,
+                sort: CaseLawSort::Relevance,
+            }
+        }
+
+        /// Requête de `words` avec les filtres par défaut, première page de dix résultats.
+        pub(crate) fn query(words: &str) -> CaseLawQuery {
+            CaseLawQuery::new(
+                QueryText::parse(words).unwrap(),
+                filters(),
+                NonZeroU32::MIN,
+                PageSize::DEFAULT,
+            )
+            .unwrap()
+        }
+
+        /// Mentions de la décision `raw` : la Cour de cassation, ou la cour d'appel de Paris pour
+        /// [`CA_ID`].
+        pub(crate) fn mention(raw: &str) -> CaseLawMention {
+            if raw == CA_ID {
+                CaseLawMention {
+                    court: "Cour d'appel de Paris".to_owned(),
+                    chamber: Some("Pôle 3 - Chambre 1".to_owned()),
+                    formation: None,
+                    date: "2023-01-18".to_owned(),
+                }
+            } else {
+                CaseLawMention {
+                    court: "Cour de cassation".to_owned(),
+                    chamber: Some("Première chambre civile".to_owned()),
+                    formation: Some("Formation de section".to_owned()),
+                    date: "2020-12-02".to_owned(),
+                }
+            }
+        }
+
+        /// Résultat de recherche : la décision `raw`. Celle de la Cour de cassation a un sommaire,
+        /// celle de la cour d'appel un extrait.
+        pub(crate) fn hit(raw: &str) -> CaseLawHit {
+            let appeal = raw == CA_ID;
+            CaseLawHit {
+                id: id(raw),
+                jurisdiction: if appeal { Court::Appeal } else { Court::Cassation },
+                mention: mention(raw),
+                number: Some(if appeal { "20/17369" } else { "19-20.000" }.to_owned()),
+                ecli: (!appeal).then(|| "ECLI:FR:CCASS:2020:C100001".to_owned()),
+                solution: Some(if appeal { "Infirmation" } else { "Cassation" }.to_owned()),
+                publication: (!appeal).then(|| "Publié au Bulletin".to_owned()),
+                summary: (!appeal).then(|| "Une donation entre vifs est irrévocable.".to_owned()),
+                excerpt: appeal.then(|| "la donation consentie entre époux".to_owned()),
+                themes: vec!["Donation".to_owned()],
+            }
+        }
+
+        /// Page de `total` résultats, qui porte `hits`.
+        pub(crate) fn page(total: u64, hits: Vec<CaseLawHit>) -> CaseLawPage {
+            CaseLawPage { total, hits }
+        }
+
+        /// La décision `raw`, de texte [`TEXT`] découpé par [`zones`], sans sommaire officiel.
+        pub(crate) fn doc(raw: &str) -> CaseLawDoc {
+            let hit = hit(raw);
+            CaseLawDoc {
+                id: hit.id,
+                jurisdiction: hit.jurisdiction,
+                mention: hit.mention,
+                number: hit.number,
+                ecli: hit.ecli,
+                solution: hit.solution,
+                publication: hit.publication,
+                themes: hit.themes,
+                summary: None,
+                text: TEXT.to_owned(),
+                zones: zones(),
+                visa: vec!["Article 894 du code civil".to_owned()],
+                related: vec![RelatedDecision {
+                    title: "1re Civ., 4 mai 2017, pourvoi n° 16-10.000".to_owned(),
+                    id: None,
+                    legifrance_id: Some("JURITEXT000034000000".to_owned()),
+                }],
+                contested: Some(ContestedDecision {
+                    court: "Cour d'appel de Paris".to_owned(),
+                    chamber: Some("Pôle 3 - Chambre 1".to_owned()),
+                    date: Some("2019-06-04".to_owned()),
+                    solution: None,
+                }),
+                updated: Some("2020-12-03".to_owned()),
+                partial: false,
+                to_be_deleted: false,
+            }
         }
     }
 
@@ -1546,5 +1796,19 @@ mod tests {
         assert_eq!(guidance.search(&words).await, Err(empty("search")));
         assert_eq!(guidance.get(Audience::Particuliers, &id).await, Err(empty("get")));
         assert_eq!(guidance.calls(), 2);
+    }
+
+    #[tokio::test]
+    async fn fake_case_law_empty_queue_is_a_decode_error_naming_the_method() {
+        use fixtures::judilibre;
+
+        let case_law = FakeCaseLaw::new();
+        let empty = |method: &str| CaseLawError::Decode {
+            detail: format!("FakeCaseLaw: no response programmed for {method}"),
+        };
+        assert_eq!(case_law.search(&judilibre::query("bail")).await, Err(empty("search")));
+        assert_eq!(case_law.get(&judilibre::id(judilibre::CC_ID)).await, Err(empty("get")));
+        // Un appel qui trouve une file vide est quand même noté.
+        assert_eq!(case_law.calls(), 2);
     }
 }

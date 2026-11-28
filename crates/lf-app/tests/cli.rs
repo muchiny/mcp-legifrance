@@ -321,12 +321,14 @@ mod bofip {
             let view = &coverage["result"]["structuredContent"];
             // La source du BOFiP ne change jamais le statut : il reste celui de PISTE.
             assert_eq!(view["status"], "ok", "{vars:?}: {coverage}");
-            // Les familles du BOFiP puis de Service-Public ferment la liste (05 §5.8).
+            // Les familles du BOFiP, de Service-Public puis de Judilibre ferment la liste
+            // (05 §5.8).
             let families = view["families"].as_array().expect("families");
-            let tools: Vec<&Value> = families.iter().rev().take(2).map(|f| &f["tools"]).collect();
+            let tools: Vec<&Value> = families.iter().rev().take(3).map(|f| &f["tools"]).collect();
             assert_eq!(
                 tools,
                 [
+                    &json!(["fr_search_judilibre", "fr_get_judilibre"]),
                     &json!(["fr_search_service_public", "fr_get_service_public"]),
                     &json!(["fr_search_bofip", "fr_get_bofip"]),
                 ],
@@ -579,8 +581,8 @@ mod service_public {
 
     /// G5 et G9 : `check-config` et `fr_coverage` n'envoient rien, que la source soit active ou
     /// coupée. Sans `LF_SERVICE_PUBLIC`, la sortie de `check-config` ne nomme pas la variable ;
-    /// `fr_coverage` rend la famille `SERVICE_PUBLIC`, la dernière, et la lacune de l'état de la
-    /// source.
+    /// `fr_coverage` rend la famille `SERVICE_PUBLIC`, l'avant-dernière (avant celle de
+    /// Judilibre), et la lacune de l'état de la source.
     #[tokio::test]
     async fn check_config_and_coverage_send_nothing() {
         let on = ["LF_SERVICE_PUBLIC", "LF_SERVICE_PUBLIC", "on", "ok"];
@@ -616,7 +618,7 @@ mod service_public {
             assert_eq!(view["status"], "ok", "{vars:?}: {coverage}");
             let families = view["families"].as_array().expect("families");
             assert_eq!(
-                families.last().expect("a family")["tools"],
+                families.iter().rev().nth(1).expect("a family")["tools"],
                 json!(["fr_search_service_public", "fr_get_service_public"]),
                 "{vars:?}: {coverage}"
             );
@@ -714,6 +716,407 @@ mod service_public {
         let finished = session.finish().await;
         assert_eq!(finished.code(), Some(0), "stderr:\n{}", finished.stderr);
         assert_eq!(trap.contacts(), [ARCHIVE_TUNNEL]);
+    }
+}
+
+/// Jalon MJ : la source Judilibre dans le binaire (T-MJ-34 ; ADR-0035, « Tests qui la gardent »).
+///
+/// Deux témoins. Le proxy piège ne voit que `CONNECT hôte:443` et ne répond jamais : coupée, la
+/// source n'ouvre aucune connexion ; active, l'appel part vers PISTE. Le faux PISTE (`wiremock` sur
+/// la boucle locale) sert Légifrance et Judilibre sur le même hôte : il montre l'adresse de chaque
+/// requête (G10) et le jeton unique des deux API (G12).
+#[cfg(test)]
+mod judilibre {
+    use std::path::Path;
+
+    use serde_json::{Value, json};
+
+    use crate::common::{
+        API_BASE, FAKE_TOKEN, FakePiste, JUDILIBRE_DECISION, JUDILIBRE_SEARCH, Launch, Session,
+        TOKEN_PATH, Trap, audit_lines, call, first_text, is_tool_error,
+    };
+
+    /// Le texte fixe d'un outil de Judilibre quand la source est coupée.
+    const DISABLED: &str = "[config_error] the Judilibre source is turned off (LF_JUDILIBRE is \
+        off or invalid, or the server runs offline with LF_DILA_DIR): fr_search_judilibre and \
+        fr_get_judilibre are unavailable. The operator can turn it on with LF_JUDILIBRE=on; search \
+        words are then sent to the Judilibre API through PISTE.";
+
+    /// Mot cherché que rien ne doit recopier : ni journal, ni message d'erreur.
+    const SENTINEL: &str = "zzsentinellezz";
+
+    /// Décision de la fixture `decision-cc.json`, première de `search-cc.json`.
+    const DECISION: &str = "5fca624b7eeb384a40cafb85";
+
+    /// Première connexion d'un appel à PISTE (bac à sable), telle qu'un proxy la reçoit : le jeton.
+    const OAUTH_TUNNEL: &str = "CONNECT sandbox-oauth.piste.gouv.fr:443 HTTP/1.1";
+
+    /// Paramètres admis d'une recherche (ADR-0035, décision 3).
+    const SEARCH_PARAMS: [&str; 10] = [
+        "query",
+        "operator",
+        "field",
+        "jurisdiction",
+        "date_start",
+        "date_end",
+        "sort",
+        "order",
+        "page",
+        "page_size",
+    ];
+
+    /// Une façon de couper la source.
+    struct Off {
+        /// Ce que le cas montre, pour les messages d'échec.
+        what: &'static str,
+        /// Variable posée en plus des identifiants.
+        var: (&'static str, &'static str),
+    }
+
+    const OFF: [Off; 4] = [
+        Off { what: "LF_JUDILIBRE=off", var: ("LF_JUDILIBRE", "off") },
+        Off { what: "LF_JUDILIBRE=OFF", var: ("LF_JUDILIBRE", "OFF") },
+        // Échec fermé : un refus mal écrit coupe la source au lieu de la laisser active.
+        Off { what: "invalid LF_JUDILIBRE", var: ("LF_JUDILIBRE", "false") },
+        // Mode hors ligne : `LF_DILA_DIR` défini, même inutilisable.
+        Off { what: "unusable LF_DILA_DIR", var: ("LF_DILA_DIR", "relative/index") },
+    ];
+
+    /// Lancement vers les hôtes officiels du bac à sable, identifiants factices, proxy `trap`,
+    /// échéance d'une seconde par appel : une requête qui partirait arriverait au piège, et
+    /// l'appel se terminerait vite.
+    fn launch(audit: &Path, trap: &Trap) -> Launch {
+        Launch::new(audit).credentials().proxy(trap).env("LF_TOOL_DEADLINE_S", "1")
+    }
+
+    /// Appelle les deux outils de Judilibre et rend leurs réponses.
+    async fn call_both(session: &mut Session) -> [Value; 2] {
+        let query = format!("{SENTINEL} donation");
+        let search =
+            session.request(&call(2, "fr_search_judilibre", &json!({"query": query}))).await;
+        let get = session.request(&call(3, "fr_get_judilibre", &json!({"id": DECISION}))).await;
+        [search, get]
+    }
+
+    /// Les lacunes de `fr_coverage` du fonds `JUDILIBRE`.
+    fn judilibre_gaps(view: &Value) -> Vec<&Value> {
+        view["gaps"]
+            .as_array()
+            .expect("gaps")
+            .iter()
+            .filter(|gap| gap["fond"] == "JUDILIBRE")
+            .map(|gap| &gap["id"])
+            .collect()
+    }
+
+    /// G4 et G5 : source coupée (demande, valeur invalide, mode hors ligne), les deux outils
+    /// répondent le texte fixe, audité, sans qu'aucune connexion ne s'ouvre. Contraste, sans
+    /// lequel un piège muet ne prouverait rien : source active, l'appel part vers PISTE (la
+    /// demande de jeton), et sa réponse ne cite pas les mots.
+    #[tokio::test]
+    async fn offline_and_off_send_nothing_through_proxy_witness() {
+        for case in &OFF {
+            let audit = tempfile::tempdir().expect("a temporary directory");
+            let trap = Trap::bind();
+            let (name, value) = case.var;
+            let mut session = launch(audit.path(), &trap).env(name, value).spawn();
+            session.handshake().await;
+            for answer in call_both(&mut session).await {
+                assert!(is_tool_error(&answer), "{}: {answer}", case.what);
+                assert_eq!(first_text(&answer), DISABLED, "{}", case.what);
+            }
+            let finished = session.finish().await;
+            assert_eq!(finished.code(), Some(0), "{}: stderr:\n{}", case.what, finished.stderr);
+            assert_eq!(trap.contacts(), Vec::<String>::new(), "{}", case.what);
+            assert!(!finished.stderr.contains(SENTINEL), "{}: {}", case.what, finished.stderr);
+
+            let lines = audit_lines(audit.path());
+            let audited: Vec<(&Value, &Value, &Value)> = lines
+                .iter()
+                .map(|line| (&line["tool"], &line["status"], &line["error_code"]))
+                .collect();
+            assert_eq!(
+                audited,
+                [
+                    (&json!("fr_search_judilibre"), &json!("error"), &json!("config_error")),
+                    (&json!("fr_get_judilibre"), &json!("error"), &json!("config_error")),
+                ],
+                "{}",
+                case.what
+            );
+        }
+
+        // Contraste : sans aucun réglage, la source est active et l'appel joint PISTE, par le
+        // proxy, qui ne répond jamais : l'échéance d'une seconde le termine.
+        let audit = tempfile::tempdir().expect("a temporary directory");
+        let trap = Trap::bind();
+        let mut session = launch(audit.path(), &trap).spawn();
+        session.handshake().await;
+        let query = format!("{SENTINEL} donation");
+        let answer =
+            session.request(&call(2, "fr_search_judilibre", &json!({"query": query}))).await;
+        let finished = session.finish().await;
+        assert_eq!(finished.code(), Some(0), "stderr:\n{}", finished.stderr);
+        assert!(is_tool_error(&answer), "{answer}");
+        assert!(!first_text(&answer).contains(SENTINEL), "{answer}");
+        assert_eq!(trap.contacts(), [OAUTH_TUNNEL]);
+        assert!(!finished.stderr.contains(SENTINEL), "{}", finished.stderr);
+    }
+
+    /// G10 et G12 dans la composition réelle : Légifrance puis Judilibre sur le même faux PISTE.
+    /// Un seul jeton sert les deux API ; la recherche de Judilibre est un `GET` sur son chemin,
+    /// avec la liste fermée de paramètres et `jurisdiction` pour chaque juridiction demandée ; la
+    /// lecture ne porte que l'identifiant. Rejoué au niveau de journal le plus bavard : les
+    /// bibliothèques HTTP écrivent par `log`, que le binaire relaie vers stderr, et ne doivent pas
+    /// y citer les mots, que l'adresse porte.
+    #[tokio::test]
+    async fn judilibre_shares_the_piste_token_and_sends_only_listed_parameters() {
+        for log in [None, Some("trace")] {
+            let audit = tempfile::tempdir().expect("a temporary directory");
+            let piste = FakePiste::serving_judilibre().await;
+            let trap = Trap::bind();
+            let mut launch = Launch::new(audit.path()).credentials().proxy(&trap).piste(&piste);
+            if let Some(level) = log {
+                launch = launch.env("LF_LOG", level);
+            }
+            let mut session = launch.spawn();
+            session.handshake().await;
+
+            let loda = json!({"query": "republique numerique", "fond": "LODA", "page_size": 5});
+            let legifrance = session.request(&call(2, "fr_search", &loda)).await;
+            assert!(!is_tool_error(&legifrance), "{log:?}: {legifrance:.500}");
+            let arguments =
+                json!({"query": format!("{SENTINEL} donation"), "courts": ["cc", "ca"]});
+            let search = session.request(&call(3, "fr_search_judilibre", &arguments)).await;
+            assert!(!is_tool_error(&search), "{log:?}: {search:.500}");
+            let hits = search["result"]["structuredContent"]["hits"].as_array().expect("hits");
+            assert_eq!(hits.first().expect("a hit")["id"], DECISION, "{log:?}");
+            let read =
+                session.request(&call(4, "fr_get_judilibre", &json!({"id": DECISION}))).await;
+            assert!(!is_tool_error(&read), "{log:?}: {read:.500}");
+            assert_eq!(read["result"]["structuredContent"]["id"], DECISION, "{log:?}");
+
+            let finished = session.finish().await;
+            assert_eq!(finished.code(), Some(0), "{log:?}: stderr:\n{}", finished.stderr);
+            assert!(!finished.stderr.contains(SENTINEL), "{log:?}: {}", finished.stderr);
+            assert_eq!(finished.stderr.contains("TRACE"), log.is_some(), "{log:?}");
+            // Rien d'autre n'est sorti de la boucle locale.
+            assert_eq!(trap.contacts(), Vec::<String>::new(), "{log:?}");
+
+            let requests = piste.requests().await;
+            let routes: Vec<(&str, &str)> = requests
+                .iter()
+                .map(|request| (request.method.as_str(), request.url.path()))
+                .collect();
+            let legifrance_search = format!("{API_BASE}/search");
+            assert_eq!(
+                routes,
+                [
+                    ("POST", TOKEN_PATH),
+                    ("POST", legifrance_search.as_str()),
+                    ("GET", JUDILIBRE_SEARCH),
+                    ("GET", JUDILIBRE_DECISION),
+                ],
+                "{log:?}"
+            );
+            for request in requests.iter().skip(1) {
+                let bearer = request.headers.get("authorization").and_then(|v| v.to_str().ok());
+                assert_eq!(bearer, Some(format!("Bearer {FAKE_TOKEN}").as_str()), "{log:?}");
+            }
+            let pairs = |index: usize| -> Vec<(String, String)> {
+                requests
+                    .get(index)
+                    .expect("a request")
+                    .url
+                    .query_pairs()
+                    .map(|(name, value)| (name.into_owned(), value.into_owned()))
+                    .collect()
+            };
+            let search_pairs = pairs(2);
+            assert!(
+                search_pairs.iter().all(|(name, _)| SEARCH_PARAMS.contains(&name.as_str())),
+                "{log:?}: {search_pairs:?}"
+            );
+            let courts: Vec<&str> = search_pairs
+                .iter()
+                .filter(|(name, _)| name == "jurisdiction")
+                .map(|(_, value)| value.as_str())
+                .collect();
+            assert_eq!(courts, ["cc", "ca"], "{log:?}");
+            assert!(
+                search_pairs.contains(&("query".to_owned(), format!("{SENTINEL} donation"))),
+                "{log:?}: {search_pairs:?}"
+            );
+            assert_eq!(pairs(3), [("id".to_owned(), DECISION.to_owned())], "{log:?}");
+
+            let lines = audit_lines(audit.path());
+            let audited: Vec<(&Value, &Value)> =
+                lines.iter().map(|line| (&line["tool"], &line["status"])).collect();
+            assert_eq!(
+                audited,
+                [
+                    (&json!("fr_search"), &json!("ok")),
+                    (&json!("fr_search_judilibre"), &json!("ok")),
+                    (&json!("fr_get_judilibre"), &json!("ok")),
+                ],
+                "{log:?}"
+            );
+        }
+    }
+
+    /// G5 : sans identifiants, la source reste active mais rien ne part : les deux outils
+    /// répondent le problème des identifiants, comme ceux de Légifrance.
+    #[tokio::test]
+    async fn without_credentials_nothing_is_sent() {
+        let audit = tempfile::tempdir().expect("a temporary directory");
+        let trap = Trap::bind();
+        let launch = Launch::new(audit.path()).proxy(&trap).env("LF_TOOL_DEADLINE_S", "1");
+        let mut session = launch.spawn();
+        session.handshake().await;
+        for answer in call_both(&mut session).await {
+            assert!(is_tool_error(&answer), "{answer}");
+            assert!(
+                first_text(&answer).starts_with("[config_error] PISTE credentials missing"),
+                "{answer}"
+            );
+        }
+        let finished = session.finish().await;
+        assert_eq!(finished.code(), Some(0), "stderr:\n{}", finished.stderr);
+        assert_eq!(trap.contacts(), Vec::<String>::new());
+        assert!(!finished.stderr.contains(SENTINEL), "{}", finished.stderr);
+    }
+
+    /// G5 et G9 : `check-config` et `fr_coverage` n'envoient rien, que la source soit active ou
+    /// coupée. Sans `LF_JUDILIBRE`, la sortie de `check-config` ne nomme pas la variable ;
+    /// `fr_coverage` rend la famille `JUDILIBRE`, la dernière, et la lacune de l'état de la
+    /// source.
+    #[tokio::test]
+    async fn check_config_and_coverage_send_nothing() {
+        let on = ["LF_JUDILIBRE", "LF_JUDILIBRE", "on", "ok"];
+        let off = ["LF_JUDILIBRE", "LF_JUDILIBRE", "off", "ok"];
+        for (vars, line, gap) in [
+            (&[][..], None, "FR-110"),
+            (&[("LF_JUDILIBRE", "on")][..], Some(on), "FR-110"),
+            (&[("LF_JUDILIBRE", "off")][..], Some(off), "FR-111"),
+        ] {
+            let audit = tempfile::tempdir().expect("a temporary directory");
+            let trap = Trap::bind();
+            let mut launch = launch(audit.path(), &trap);
+            for (name, value) in vars {
+                launch = launch.env(name, value);
+            }
+
+            let report = launch.clone().args(&["check-config"]).run_to_end().await;
+            assert_eq!(report.code, Some(0), "{vars:?}: {report:?}");
+            assert!(report.stdout.contains("Result: valid"), "{vars:?}: {}", report.stdout);
+            let shown: Option<Vec<&str>> = report
+                .stdout
+                .lines()
+                .find(|row| row.starts_with("LF_JUDILIBRE"))
+                .map(|row| row.split_whitespace().collect());
+            assert_eq!(shown, line.map(Vec::from), "{vars:?}: {}", report.stdout);
+
+            let mut session = launch.spawn();
+            session.handshake().await;
+            let coverage = session.request(&call(2, "fr_coverage", &json!({}))).await;
+            assert!(!is_tool_error(&coverage), "{vars:?}: {coverage}");
+            let view = &coverage["result"]["structuredContent"];
+            // La source de Judilibre ne change jamais le statut : il reste celui de PISTE.
+            assert_eq!(view["status"], "ok", "{vars:?}: {coverage}");
+            let families = view["families"].as_array().expect("families");
+            assert_eq!(
+                families.last().expect("a family")["tools"],
+                json!(["fr_search_judilibre", "fr_get_judilibre"]),
+                "{vars:?}: {coverage}"
+            );
+            assert_eq!(judilibre_gaps(view), [&json!(gap)], "{vars:?}");
+            let finished = session.finish().await;
+            assert_eq!(finished.code(), Some(0), "{vars:?}: stderr:\n{}", finished.stderr);
+            assert_eq!(trap.contacts(), Vec::<String>::new(), "{vars:?}");
+        }
+    }
+
+    /// Échec fermé (ADR-0035, décision 10) : `LF_JUDILIBRE` ni `on` ni `off` coupe la source. Le
+    /// serveur démarre et le dit (`error!` sur stderr, problème de `check-config`, code 2), sans
+    /// recopier la valeur ; PISTE n'est pas dégradé pour autant.
+    #[tokio::test]
+    async fn invalid_lf_judilibre_turns_source_off() {
+        let audit = tempfile::tempdir().expect("a temporary directory");
+        let trap = Trap::bind();
+        let launch = launch(audit.path(), &trap).env("LF_JUDILIBRE", SENTINEL);
+
+        let report = launch.clone().args(&["check-config"]).run_to_end().await;
+        assert_eq!(report.code, Some(2), "{report:?}");
+        assert!(report.stdout.contains("Result: invalid"), "{}", report.stdout);
+        let problem = "  - LF_JUDILIBRE must be on or off: the Judilibre source is turned off";
+        assert!(report.stdout.contains(problem), "{}", report.stdout);
+        let row = report.stdout.lines().find(|row| row.starts_with("LF_JUDILIBRE")).expect("a row");
+        assert_eq!(
+            row.split_whitespace().collect::<Vec<_>>(),
+            ["LF_JUDILIBRE", "LF_JUDILIBRE", "off", "(invalid", "value)", "problem"]
+        );
+        assert!(!report.stdout.contains(SENTINEL) && !report.stderr.contains(SENTINEL));
+
+        let mut session = launch.spawn();
+        session.handshake().await;
+        for answer in call_both(&mut session).await {
+            assert_eq!(first_text(&answer), DISABLED);
+        }
+        let coverage = session.request(&call(4, "fr_coverage", &json!({}))).await;
+        let view = &coverage["result"]["structuredContent"];
+        assert_eq!(view["status"], "ok", "{coverage}");
+        assert!(view["configuration"].get("problems").is_none(), "{coverage}");
+        assert_eq!(judilibre_gaps(view), [&json!("FR-111")], "{coverage}");
+        let finished = session.finish().await;
+        assert_eq!(finished.code(), Some(0), "stderr:\n{}", finished.stderr);
+        assert!(
+            finished.stderr.lines().any(|line| {
+                line.contains("ERROR") && line.contains("LF_JUDILIBRE must be on or off")
+            }),
+            "{}",
+            finished.stderr
+        );
+        assert!(!finished.stderr.contains(SENTINEL), "{}", finished.stderr);
+        assert_eq!(trap.contacts(), Vec::<String>::new());
+    }
+
+    /// Mode hors ligne : `LF_DILA_DIR` défini coupe la source d'office, même quand il est
+    /// inutilisable, et `check-config` le montre. Seul `LF_JUDILIBRE=on` la rétablit : elle joint
+    /// alors PISTE, alors que les textes de Légifrance restent indisponibles.
+    #[tokio::test]
+    async fn unusable_dila_dir_turns_source_off() {
+        let audit = tempfile::tempdir().expect("a temporary directory");
+        let trap = Trap::bind();
+        let offline = launch(audit.path(), &trap).env("LF_DILA_DIR", "relative/index");
+
+        let report = offline.clone().args(&["check-config"]).run_to_end().await;
+        let row = report.stdout.lines().find(|row| row.starts_with("LF_JUDILIBRE")).expect("a row");
+        assert_eq!(
+            row.split_whitespace().collect::<Vec<_>>(),
+            ["LF_JUDILIBRE", "default", "off", "(LF_DILA_DIR", "is", "set)", "ok"]
+        );
+        // Le seul problème est celui de `LF_DILA_DIR` : la coupure d'office n'en est pas un.
+        assert_eq!(report.code, Some(2), "{report:?}");
+        assert!(!report.stdout.contains("LF_JUDILIBRE must be"), "{}", report.stdout);
+        assert_eq!(trap.contacts(), Vec::<String>::new());
+
+        // `LF_JUDILIBRE=on` explicite : la source revient, et elle seule joint le réseau.
+        let mut session = offline.env("LF_JUDILIBRE", "on").spawn();
+        session.handshake().await;
+        let legifrance = session.request(&call(2, "fr_search", &json!({"query": "bail"}))).await;
+        assert!(
+            first_text(&legifrance).starts_with("[config_error] LF_DILA_DIR must be an absolute"),
+            "{legifrance}"
+        );
+        let query = format!("{SENTINEL} donation");
+        let answer =
+            session.request(&call(3, "fr_search_judilibre", &json!({"query": query}))).await;
+        assert!(is_tool_error(&answer), "{answer}");
+        assert_ne!(first_text(&answer), DISABLED, "{answer}");
+        let finished = session.finish().await;
+        assert_eq!(finished.code(), Some(0), "stderr:\n{}", finished.stderr);
+        assert_eq!(trap.contacts(), [OAUTH_TUNNEL]);
+        assert!(!finished.stderr.contains(SENTINEL), "{}", finished.stderr);
     }
 }
 

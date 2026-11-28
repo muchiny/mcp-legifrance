@@ -1,0 +1,8 @@
+{
+ "route": "GET /search",
+ "errors": [
+  {
+   "msg": "Range Not Satisfiable"
+  }
+ ]
+}

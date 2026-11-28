@@ -1,7 +1,8 @@
 //! Câblage : assemble les adapters en un `LegalService`, puis le sert sur stdio (02 §8.4).
 //!
 //! La composition de production est
-//! `LegalService<AnyCorpus, AppAudit, SystemClock, AnyDoctrine, AnyGuidance>` ([`AppService`]) :
+//! `LegalService<AnyCorpus, AppAudit, SystemClock, AnyDoctrine, AnyGuidance, AnyCaseLaw>`
+//! ([`AppService`]) :
 //!
 //! - [`AnyCorpus`] choisit la source des textes à l'exécution (02 §8.5), sans `Box<dyn>` : PISTE
 //!   derrière le cache (défaut), l'index local DILA si `LF_DILA_DIR` le demande (feature `dila`),
@@ -24,7 +25,11 @@
 //!   `[config_error]`, sans réseau ;
 //! - [`AnyGuidance`] est la source des fiches pratiques (jalon MS) : les archives du jour de
 //!   Service-Public, ou rien, mêmes règles (`LF_SERVICE_PUBLIC`). `ServicePublicGuidance::new` ne
-//!   fait aucune E/S : rien n'est téléchargé avant le premier appel d'un de ses outils.
+//!   fait aucune E/S : rien n'est téléchargé avant le premier appel d'un de ses outils ;
+//! - [`AnyCaseLaw`] est la source des décisions de justice (jalon MJ) : l'API Judilibre, ou rien,
+//!   mêmes règles (`LF_JUDILIBRE`). Elle passe par **le même** `PisteCorpus` que Légifrance (jeton,
+//!   client, limiteur, sémaphore : G12), construit une fois par [`build`], même en mode hors
+//!   ligne, sans E/S. Sans identifiants, ce cœur ne fait aucune requête.
 //!
 //! # Source locale DILA (M9)
 //!
@@ -60,15 +65,15 @@ use lf_adapter_cache::{CachePolicy, CachedCorpus};
 #[cfg(feature = "dila")]
 use lf_adapter_dila::DilaCorpus;
 use lf_adapter_mcp::{LegifranceServer, serve_stdio};
-use lf_adapter_piste::PisteCorpus;
+use lf_adapter_piste::{PisteCorpus, PisteJudilibre};
 use lf_adapter_service_public::ServicePublicGuidance;
 use lf_application::{
     audited::AuditPolicy,
     budget::ResponseBudget,
     ports::{
-        ArticleAt, AuditError, AuditErrorKind, AuditLog, AuditRecord, ConfigKind, CorpusError,
-        DoctrineError, GuidanceError, GuidanceFound, GuidanceRead, LegalCorpus, PisteEnvironment,
-        PublicGuidance, TaxDoctrine,
+        ArticleAt, AuditError, AuditErrorKind, AuditLog, AuditRecord, CaseLawError, ConfigKind,
+        CorpusError, DoctrineError, GuidanceError, GuidanceFound, GuidanceRead, JudicialOpenData,
+        LegalCorpus, PisteEnvironment, PublicGuidance, TaxDoctrine,
     },
     service::{LegalService, ServiceSettings},
 };
@@ -81,22 +86,25 @@ use lf_domain::{
     },
     guidance::{Audience, GuidanceQuery, SheetId},
     id::{AccoTextId, ArticleId, CnilTextId, DecisionId, KaliTextId, LegiTextId},
+    judilibre::{CaseLawDoc, CaseLawPage, CaseLawQuery, JudilibreId},
     search::{NumberQuery, SearchQuery},
 };
 use tokio_util::sync::CancellationToken;
 
 use crate::{
     clock::SystemClock,
-    config::{AppConfig, AuditSettings, BofipSource, CorpusSource, ServicePublicSource},
+    config::{
+        AppConfig, AuditSettings, BofipSource, CaseLawSource, CorpusSource, ServicePublicSource,
+    },
 };
 
 /// Le corpus de production : PISTE derrière le cache, ou l'index local DILA (02 §8.5).
 pub(crate) type AppCorpus = AnyCorpus;
 
-/// La façade de production : corpus, journal d'audit, horloge, source de doctrine et source des
-/// fiches pratiques de [`build`].
+/// La façade de production : corpus, journal d'audit, horloge, source de doctrine, source des
+/// fiches pratiques et source des décisions de justice de [`build`].
 pub(crate) type AppService =
-    LegalService<AppCorpus, AppAudit, SystemClock, AnyDoctrine, AnyGuidance>;
+    LegalService<AppCorpus, AppAudit, SystemClock, AnyDoctrine, AnyGuidance, AnyCaseLaw>;
 
 /// Ce que le modèle lit quand l'index local DILA demandé ne peut pas être ouvert : ni chemin ni
 /// cause, que le journal de diagnostic porte.
@@ -204,12 +212,17 @@ impl LegalCorpus for AnyCorpus {
     }
 }
 
-/// Le corpus que la configuration demande. PISTE n'est jamais le repli d'une source locale
-/// inutilisable.
+/// Le corpus que la configuration demande, sur un cœur PISTE neuf (tests).
+#[cfg(test)]
 pub(crate) fn corpus_for(config: &AppConfig) -> AnyCorpus {
+    corpus_with(config, PisteCorpus::new(config.piste.clone()))
+}
+
+/// Le corpus que la configuration demande ; `piste` sert si la source est PISTE. PISTE n'est
+/// jamais le repli d'une source locale inutilisable.
+fn corpus_with(config: &AppConfig, piste: PisteCorpus) -> AnyCorpus {
     match &config.source {
         CorpusSource::Piste => {
-            let piste = PisteCorpus::new(config.piste.clone());
             AnyCorpus::Piste(CachedCorpus::new(piste, config.piste.env(), CachePolicy::default()))
         }
         CorpusSource::Dila(dir) => local_index(dir),
@@ -332,6 +345,41 @@ pub(crate) fn guidance_for(config: &AppConfig) -> AnyGuidance {
     }
 }
 
+/// Source des décisions de justice, choisie une fois au démarrage : l'API Judilibre par le cœur
+/// PISTE du processus, ou rien. Un enum de dispatch statique, comme [`AnyGuidance`].
+pub(crate) enum AnyCaseLaw {
+    /// L'API Judilibre, par le même jeton, client et limiteur que Légifrance (G12).
+    Piste(PisteJudilibre),
+    /// Source coupée : chaque opération répond [`CaseLawError::Disabled`], que le modèle lit en
+    /// `[config_error]`, sans réseau.
+    Off,
+}
+
+impl JudicialOpenData for AnyCaseLaw {
+    async fn search(&self, query: &CaseLawQuery) -> Result<CaseLawPage, CaseLawError> {
+        match self {
+            Self::Piste(judilibre) => judilibre.search(query).await,
+            Self::Off => Err(CaseLawError::Disabled),
+        }
+    }
+
+    async fn get(&self, id: &JudilibreId) -> Result<CaseLawDoc, CaseLawError> {
+        match self {
+            Self::Piste(judilibre) => judilibre.get(id).await,
+            Self::Off => Err(CaseLawError::Disabled),
+        }
+    }
+}
+
+/// La source des décisions que la configuration demande, sur le cœur `piste` : coupée, elle n'en
+/// garde rien.
+pub(crate) fn case_law_with(config: &AppConfig, piste: &PisteCorpus) -> AnyCaseLaw {
+    match config.judilibre {
+        CaseLawSource::On => AnyCaseLaw::Piste(piste.judilibre()),
+        CaseLawSource::Off(_) => AnyCaseLaw::Off,
+    }
+}
+
 /// Journal d'audit du processus : le fichier JSONL, ou l'impossibilité d'en avoir un.
 ///
 /// Une configuration d'audit inutilisable (`LF_AUDIT_DIR` relatif, répertoire personnel ou de
@@ -407,19 +455,26 @@ fn audit_environment(config: &AppConfig) -> PisteEnvironment {
 }
 
 /// Assemble la façade de production. Aucune E/S réseau ni du journal d'audit ; l'index local DILA,
-/// s'il est demandé, ouvre son répertoire, qui doit exister et porter des documents.
+/// s'il est demandé, ouvre son répertoire, qui doit exister et porter des documents. Un seul cœur
+/// PISTE sert Légifrance et Judilibre (G12) : un jeton, un limiteur. Le test
+/// `judilibre_shares_the_piste_token_and_sends_only_listed_parameters` (`tests/cli.rs`) le garde
+/// dans le binaire : deux cœurs y demanderaient deux jetons.
 pub(crate) fn build(config: &AppConfig) -> AppService {
     tracing::info!(source = config.source.label(), "corpus source");
     tracing::info!(source = config.bofip.label(), "tax doctrine source");
     tracing::info!(source = config.service_public.label(), "public guidance source");
+    tracing::info!(source = config.judilibre.label(), "case law source");
+    let piste = PisteCorpus::new(config.piste.clone());
+    let case_law = case_law_with(config, &piste);
     LegalService::new(
-        corpus_for(config),
+        corpus_with(config, piste),
         AppAudit::open(&config.audit),
         SystemClock,
         service_settings(config),
     )
     .with_doctrine(doctrine_for(config))
     .with_guidance(guidance_for(config))
+    .with_case_law(case_law)
 }
 
 /// Commande `serve` : sert le serveur MCP sur stdin et stdout jusqu'à l'EOF de stdin ou jusqu'à
@@ -452,19 +507,22 @@ mod tests {
         audited::AuditMode,
         error::ErrorCode,
         input::{
-            CanonicalInput, CoverageInput, GetBofipInput, GetServicePublicInput, SearchBofipInput,
-            SearchServicePublicInput, ToolCall,
+            CanonicalInput, CoverageInput, GetBofipInput, GetJudilibreInput, GetServicePublicInput,
+            SearchBofipInput, SearchJudilibreInput, SearchServicePublicInput, ToolCall,
         },
-        messages::{DOCTRINE_DISABLED_MESSAGE, GUIDANCE_DISABLED_MESSAGE},
+        messages::{
+            DOCTRINE_DISABLED_MESSAGE, GUIDANCE_DISABLED_MESSAGE, JUDILIBRE_DISABLED_MESSAGE,
+        },
         output::coverage::CoverageOutput,
         ports::AuditStatus,
-        service::{DoctrineSource, GuidanceSource},
+        service::{DoctrineSource, GuidanceSource, JudilibreSource},
         tools::ToolName,
     };
     use lf_domain::{
         doctrine::{DoctrineTerms, KindFilter},
         fond::Fond,
         guidance::{AudienceFilter, GuidanceTerms},
+        judilibre::{CaseLawFilters, CaseLawSort, CourtSet},
         search::{MatchMode, NumberKind, NumberValue, PageSize, QueryText},
     };
 
@@ -852,6 +910,102 @@ mod tests {
         assert_eq!(gaps_of(&coverage, "SERVICE_PUBLIC"), ["FR-108"]);
     }
 
+    /// Les réglages qui coupent la source de Judilibre : demande explicite, valeur invalide, mode
+    /// hors ligne.
+    const JUDILIBRE_OFF: [(&str, &str); 3] =
+        [("LF_JUDILIBRE", "off"), ("LF_JUDILIBRE", "false"), ("LF_DILA_DIR", "relative/index")];
+
+    fn case_law_query() -> CaseLawQuery {
+        let filters = CaseLawFilters {
+            mode: MatchMode::All,
+            courts: CourtSet::ALL,
+            part: None,
+            date_from: None,
+            date_to: None,
+            sort: CaseLawSort::Relevance,
+        };
+        let text = QueryText::parse("donation").unwrap();
+        CaseLawQuery::new(text, filters, NonZeroU32::MIN, PageSize::new(10).unwrap()).unwrap()
+    }
+
+    fn case_law_for(config: &AppConfig) -> AnyCaseLaw {
+        case_law_with(config, &PisteCorpus::new(config.piste.clone()))
+    }
+
+    /// Par défaut, la source des décisions est Judilibre, sur le cœur PISTE : la construire ne fait
+    /// aucune E/S, identifiants ou non ; `LF_JUDILIBRE=on` la rétablit en mode hors ligne.
+    #[test]
+    fn judilibre_is_the_case_law_source_by_default() {
+        assert!(matches!(case_law_for(&config_with(&[])), AnyCaseLaw::Piste(_)));
+        let bare = load(&MapEnv::new(&[])).config;
+        assert!(matches!(case_law_for(&bare), AnyCaseLaw::Piste(_)));
+        assert_eq!(service_settings(&bare).configuration.judilibre, JudilibreSource::Active);
+        let forced = config_with(&[("LF_DILA_DIR", "relative/index"), ("LF_JUDILIBRE", "on")]);
+        assert!(matches!(case_law_for(&forced), AnyCaseLaw::Piste(_)));
+    }
+
+    /// Source coupée : les deux opérations répondent `Disabled`, sans réseau.
+    #[tokio::test]
+    async fn a_judilibre_source_turned_off_answers_disabled_on_both_operations() {
+        for pair in JUDILIBRE_OFF {
+            let config = config_with(&[pair]);
+            assert_eq!(service_settings(&config).configuration.judilibre, JudilibreSource::Off);
+            let case_law = case_law_for(&config);
+            assert!(matches!(case_law, AnyCaseLaw::Off), "{pair:?}");
+            let found = case_law.search(&case_law_query()).await.map(|page| page.total);
+            assert_eq!(found, Err(CaseLawError::Disabled), "{pair:?}");
+            let id = JudilibreId::parse("5fca624b7eeb384a40cafb85").unwrap();
+            let read = case_law.get(&id).await.map(|doc| doc.id);
+            assert_eq!(read, Err(CaseLawError::Disabled), "{pair:?}");
+        }
+    }
+
+    /// La façade assemblée : source coupée, les deux outils de Judilibre répondent
+    /// `[config_error]` avec le texte fixe, et `fr_coverage` rend la lacune FR-111 ; par défaut,
+    /// FR-110. Sans identifiants, la source reste active et répond `[config_error]` sans réseau.
+    #[tokio::test]
+    async fn the_built_service_serves_the_judilibre_tools_and_reports_the_source_state() {
+        let search = || ToolCall {
+            input: Ok(SearchJudilibreInput {
+                query: Some("donation".to_owned()),
+                ..SearchJudilibreInput::default()
+            }),
+            canonical: CanonicalInput::new(r#"{"query":"donation"}"#),
+        };
+        let get = || ToolCall {
+            input: Ok(GetJudilibreInput {
+                id: Some("5fca624b7eeb384a40cafb85".to_owned()),
+                ..GetJudilibreInput::default()
+            }),
+            canonical: CanonicalInput::new(r#"{"id":"5fca624b7eeb384a40cafb85"}"#),
+        };
+        for pair in JUDILIBRE_OFF {
+            let dir = tempfile::tempdir().expect("a temporary directory");
+            let service = build(&config_with(&[audit_dir(dir.path()), pair]));
+            let error = Box::pin(service.search_judilibre(search(), pending())).await.unwrap_err();
+            assert_eq!(error.code(), Some(ErrorCode::ConfigError), "{pair:?}");
+            assert_eq!(error.message(), JUDILIBRE_DISABLED_MESSAGE, "{pair:?}");
+            let error = Box::pin(service.get_judilibre(get(), pending())).await.unwrap_err();
+            assert_eq!(error.code(), Some(ErrorCode::ConfigError), "{pair:?}");
+            assert_eq!(error.message(), JUDILIBRE_DISABLED_MESSAGE, "{pair:?}");
+            let coverage = service.coverage(coverage_call(), pending()).await.unwrap();
+            assert_eq!(gaps_of(&coverage, "JUDILIBRE"), ["FR-111"], "{pair:?}");
+        }
+        let dir = tempfile::tempdir().expect("a temporary directory");
+        let service = build(&config_with(&[audit_dir(dir.path())]));
+        let coverage = service.coverage(coverage_call(), pending()).await.unwrap();
+        assert_eq!(gaps_of(&coverage, "JUDILIBRE"), ["FR-110"]);
+
+        // Sans identifiants : la source est active, mais le cœur PISTE n'envoie rien.
+        let dir = tempfile::tempdir().expect("a temporary directory");
+        let path = dir.path().to_str().expect("a UTF-8 temporary path");
+        let bare = load(&MapEnv::new(&[("LF_AUDIT_DIR", path)])).config;
+        let service = build(&bare);
+        let error = Box::pin(service.search_judilibre(search(), pending())).await.unwrap_err();
+        assert_eq!(error.code(), Some(ErrorCode::ConfigError));
+        assert_ne!(error.message(), JUDILIBRE_DISABLED_MESSAGE);
+    }
+
     #[test]
     fn piste_stays_the_source_unless_a_local_index_is_asked_for() {
         let corpus = corpus_for(&config_with(&[]));
@@ -956,11 +1110,11 @@ mod tests {
         assert_eq!(output.environment, PisteEnvironment::Production);
         assert_eq!(output.configuration.problems, Vec::<String>::new());
         assert!(output.configuration.local_snapshot);
-        // La lacune de l'instantané, puis celles du BOFiP et de Service-Public, coupés d'office en
-        // mode hors ligne.
+        // La lacune de l'instantané, puis celles du BOFiP, de Service-Public et de Judilibre,
+        // coupés d'office en mode hors ligne.
         let gaps: Vec<&str> =
             output.coverage.known_gaps().iter().map(|gap| gap.id.as_str()).collect();
-        assert_eq!(gaps[gaps.len() - 3..], ["FR-105", "FR-107", "FR-109"]);
+        assert_eq!(gaps[gaps.len() - 4..], ["FR-105", "FR-107", "FR-109", "FR-111"]);
         let families: Vec<&str> =
             output.coverage.families().iter().map(|family| family.name.as_str()).collect();
         assert_eq!(families, ["LODA", "CODE"]);

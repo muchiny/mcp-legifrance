@@ -5,6 +5,7 @@
 //! (versions et liens d'un article).
 
 pub(crate) mod consult;
+pub(crate) mod judilibre;
 pub(crate) mod m6;
 pub(crate) mod m7;
 pub(crate) mod search;

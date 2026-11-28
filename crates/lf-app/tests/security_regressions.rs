@@ -789,6 +789,10 @@ mod security {
     /// adresses publiques rendues dans `source_url`, jamais appelés ; et
     /// `lecomarquage.service-public.gouv.fr`, l'hôte des archives du jour, seule adresse que
     /// `lf-adapter-service-public` appelle, fixée dans le code.
+    ///
+    /// Judilibre (ADR-0035, décision 11) : `www.courdecassation.fr`, l'hôte exact, en `https` seul,
+    /// préfixe de l'adresse publique d'une décision à grammaire stricte, jamais appelée et rendue
+    /// seulement si V-239 la confirme. L'API Judilibre est sur l'hôte de PISTE, déjà admis.
     fn allowlisted(url: &str) -> bool {
         let Some((scheme, rest)) = url.split_once("://") else { return false };
         if rest.contains('@') {
@@ -809,6 +813,7 @@ mod security {
                     || name == "www.service-public.gouv.fr"
                     || name == "entreprendre.service-public.gouv.fr"
                     || name == "lecomarquage.service-public.gouv.fr"
+                    || name == "www.courdecassation.fr"
                     || rest.starts_with("github.com/muchiny/mcp-legifrance")
             }
             "http" => matches!(name, "127.0.0.1" | "localhost" | "[::1]"),
@@ -851,71 +856,82 @@ mod security {
                 .is_some_and(|parent| declares_test_module(&parent))
     }
 
+    /// Exemples de l'analyse des URL : piégées ou permises, une par ligne, puis un module de test
+    /// qui doit être sauté.
+    const URL_SAMPLE: &str = "let a = \"https://www.legifrance.gouv.fr/loda/id/X\";\n\
+                  // https://ignored.example.org\n\
+                  let b = \"https://telemetry.example.org/v1\";\n\
+                  let c = \"https://user:pw@sandbox-api.piste.gouv.fr/x\";\n\
+                  let d = \"https://www.legifrance.gouv.fr.example.org/\";\n\
+                  let e = \"https://github.com/muchiny/mcp-legifrance\";\n\
+                  let f = \"http://127.0.0.1:8080/x\";\n\
+                  let g = \"http://sandbox-api.piste.gouv.fr/x\";\n\
+                  let h = \"https://bofip.impots.gouv.fr/bofip/1-PGP.html\";\n\
+                  let i = \"https://bofip.impots.gouv.fr.example.org/\";\n\
+                  let j = \"https://www.bofip.impots.gouv.fr/\";\n\
+                  let k = \"http://bofip.impots.gouv.fr/\";\n\
+                  let l = \"https://data.economie.gouv.fr/api/explore/v2.1/catalog\";\n\
+                  let m = \"https://data.economie.gouv.fr.example.org/\";\n\
+                  let n = \"https://economie.gouv.fr/\";\n\
+                  let o = \"http://data.economie.gouv.fr/\";\n\
+                  let p = \"https://www.service-public.gouv.fr/particuliers/vosdroits/F1\";\n\
+                  let q = \"https://entreprendre.service-public.gouv.fr/vosdroits/F1\";\n\
+                  let r = \"https://lecomarquage.service-public.gouv.fr/vdd/3.5/part/zip/x.zip\";\n\
+                  let s = \"https://service-public.gouv.fr/particuliers/vosdroits/F1\";\n\
+                  let t = \"https://www.service-public.gouv.fr.example.org/\";\n\
+                  let u = \"http://www.service-public.gouv.fr/\";\n\
+                  let v = \"https://associations.service-public.gouv.fr/\";\n\
+                  let w = \"https://www.courdecassation.fr/decision/5fca624b7eeb384a40cafb85\";\n\
+                  let x = \"https://courdecassation.fr/decision/x\";\n\
+                  let y = \"http://www.courdecassation.fr/\";\n\
+                  let w2 = \"https://www.courdecassation.fr.example.org/\";\n\
+                  #[cfg(test)]\nmod tests { let z = \"https://tests.example.org\"; }\n";
+
+    /// Verdict attendu de chaque URL de [`URL_SAMPLE`] : `(ligne, permise)`.
+    const URL_VERDICTS: [(usize, bool); 26] = [
+        (1, true),
+        (3, false),
+        (4, false),
+        (5, false),
+        (6, true),
+        (7, true),
+        (8, false),
+        (9, true),
+        (10, false),
+        (11, false),
+        (12, false),
+        (13, true),
+        (14, false),
+        (15, false),
+        (16, false),
+        (17, true),
+        (18, true),
+        (19, true),
+        (20, false),
+        (21, false),
+        (22, false),
+        (23, false),
+        (24, true),
+        (25, false),
+        (26, false),
+        (27, false),
+    ];
+
     /// Régression : D-04. Aucune URL littérale du code de production (`crates/*/src`, hors modules
     /// de test) ne sort de la liste blanche : hôtes `*.piste.gouv.fr`, `www.legifrance.gouv.fr`,
-    /// dépôt du projet, boucle locale, et les hôtes exacts du BOFiP et de Service-Public (voir
-    /// `allowlisted`). Une URL pour un autre hôte (télémétrie, manifeste distant) y serait vue.
+    /// dépôt du projet, boucle locale, et les hôtes exacts du BOFiP, de Service-Public et de
+    /// l'adresse publique de Judilibre (voir `allowlisted`). Une URL pour un autre hôte (télémétrie, manifeste distant) y serait vue.
     /// Un module de test est soit la fin d'un fichier après `#[cfg(test)]`, soit un `tests.rs`
     /// que son parent déclare sous `#[cfg(test)]`. L'analyse elle-même est vérifiée sur des
     /// exemples, et ne lit pas zéro fichier.
     #[test]
     fn production_sources_contain_only_allowlisted_urls() {
         // L'analyse voit les URL piégées et laisse passer les permises.
-        let sample = "let a = \"https://www.legifrance.gouv.fr/loda/id/X\";\n\
-                      // https://ignored.example.org\n\
-                      let b = \"https://telemetry.example.org/v1\";\n\
-                      let c = \"https://user:pw@sandbox-api.piste.gouv.fr/x\";\n\
-                      let d = \"https://www.legifrance.gouv.fr.example.org/\";\n\
-                      let e = \"https://github.com/muchiny/mcp-legifrance\";\n\
-                      let f = \"http://127.0.0.1:8080/x\";\n\
-                      let g = \"http://sandbox-api.piste.gouv.fr/x\";\n\
-                      let h = \"https://bofip.impots.gouv.fr/bofip/1-PGP.html\";\n\
-                      let i = \"https://bofip.impots.gouv.fr.example.org/\";\n\
-                      let j = \"https://www.bofip.impots.gouv.fr/\";\n\
-                      let k = \"http://bofip.impots.gouv.fr/\";\n\
-                      let l = \"https://data.economie.gouv.fr/api/explore/v2.1/catalog\";\n\
-                      let m = \"https://data.economie.gouv.fr.example.org/\";\n\
-                      let n = \"https://economie.gouv.fr/\";\n\
-                      let o = \"http://data.economie.gouv.fr/\";\n\
-                      let p = \"https://www.service-public.gouv.fr/particuliers/vosdroits/F1\";\n\
-                      let q = \"https://entreprendre.service-public.gouv.fr/vosdroits/F1\";\n\
-                      let r = \"https://lecomarquage.service-public.gouv.fr/vdd/3.5/part/zip/x.zip\";\n\
-                      let s = \"https://service-public.gouv.fr/particuliers/vosdroits/F1\";\n\
-                      let t = \"https://www.service-public.gouv.fr.example.org/\";\n\
-                      let u = \"http://www.service-public.gouv.fr/\";\n\
-                      let v = \"https://associations.service-public.gouv.fr/\";\n\
-                      #[cfg(test)]\nmod tests { let z = \"https://tests.example.org\"; }\n";
-        let verdicts: Vec<(usize, bool)> = url_hosts(production_part(sample))
+        let verdicts: Vec<(usize, bool)> = url_hosts(production_part(URL_SAMPLE))
             .iter()
             .map(|(line, url)| (*line, allowlisted(url)))
             .collect();
-        assert_eq!(
-            verdicts,
-            [
-                (1, true),
-                (3, false),
-                (4, false),
-                (5, false),
-                (6, true),
-                (7, true),
-                (8, false),
-                (9, true),
-                (10, false),
-                (11, false),
-                (12, false),
-                (13, true),
-                (14, false),
-                (15, false),
-                (16, false),
-                (17, true),
-                (18, true),
-                (19, true),
-                (20, false),
-                (21, false),
-                (22, false),
-                (23, false),
-            ]
-        );
+        assert_eq!(verdicts, URL_VERDICTS);
 
         // Un `tests.rs` n'est sauté que si son parent le déclare sous `#[cfg(test)]`.
         let declared = [

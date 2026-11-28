@@ -802,6 +802,77 @@ mod tests {
         (found, derived)
     }
 
+    /// Les fixtures de Judilibre (`tests/fixtures/judilibre/`, T-MJ-02) : dérivés réduits sans
+    /// sidecar, chacun du JSON, nommé par le `README.md` du répertoire, et sans rien qui ressemble
+    /// à un secret.
+    #[test]
+    fn judilibre_fixtures_pass_the_secret_detectors_and_are_listed() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/judilibre");
+        let (problems, count) = judilibre_tree(&root);
+        assert_eq!((problems, count), (Vec::<String>::new(), JUDILIBRE_FIXTURES));
+    }
+
+    /// Nombre de fixtures de Judilibre versionnées (fichiers `.json`).
+    const JUDILIBRE_FIXTURES: usize = 7;
+
+    /// Problèmes de l'arbre `root` des fixtures de Judilibre : fichier ni `.json` ni `README.md`,
+    /// fixture que le `README.md` ne nomme pas, qui n'est pas du JSON ou qui ressemble à un
+    /// secret ; et le nombre de fixtures.
+    fn judilibre_tree(root: &Path) -> (Vec<String>, usize) {
+        let readme = fs::read_to_string(root.join("README.md")).expect("README is readable");
+        let mut problems = Vec::new();
+        let mut count = 0;
+        for path in files_under(root) {
+            let shown =
+                path.strip_prefix(root).expect("under root").to_string_lossy().replace('\\', "/");
+            if shown == "README.md" {
+                continue;
+            }
+            if shown.strip_suffix(".json").is_none() {
+                problems.push(format!("{shown}: unexpected file"));
+                continue;
+            }
+            count += 1;
+            if !readme.contains(&format!("`{shown}`")) {
+                problems.push(format!("{shown}: not in README"));
+            }
+            let raw = fs::read_to_string(&path).expect("fixture is UTF-8");
+            match serde_json::from_str::<Value>(&raw) {
+                Ok(json) => problems.extend(leaks(&shown, &raw, &json)),
+                Err(_) => problems.push(format!("{shown}: not JSON")),
+            }
+        }
+        (problems, count)
+    }
+
+    #[test]
+    fn judilibre_tree_flags_each_problem() {
+        let root = std::env::temp_dir().join(format!("lf-judilibre-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).expect("create dir");
+        // Une fixture saine et nommée, une que le README ne nomme pas, une illisible, une qui
+        // fuit et un fichier étranger.
+        fs::write(root.join("README.md"), "`ok.json`, `broken.json`, `leak.json`").expect("write");
+        fs::write(root.join("ok.json"), r#"{"id": "x"}"#).expect("write");
+        fs::write(root.join("unlisted.json"), "{}").expect("write");
+        fs::write(root.join("broken.json"), "{").expect("write");
+        fs::write(root.join("leak.json"), r#"{"k": "Bearer x"}"#).expect("write");
+        fs::write(root.join("note.txt"), "d").expect("write");
+        let (found, count) = judilibre_tree(&root);
+        fs::remove_dir_all(&root).expect("clean up");
+        assert_eq!(count, 4);
+        assert_eq!(
+            found,
+            [
+                "broken.json: not JSON",
+                "leak.json: secret word \"bearer\"",
+                "leak.json: secret word at k",
+                "note.txt: unexpected file",
+                "unlisted.json: not in README",
+            ]
+        );
+    }
+
     #[test]
     fn derived_tree_flags_each_problem() {
         let root = std::env::temp_dir().join(format!("lf-derived-{}", std::process::id()));

@@ -51,7 +51,7 @@ impl AuditMetric for CoverageOutput {
 mod tests {
     use super::*;
     use lf_domain::{
-        coverage::{ConfigFacts, DoctrineSource, GuidanceSource, coverage},
+        coverage::{ConfigFacts, DoctrineSource, GuidanceSource, JudilibreSource, coverage},
         fond::Fond,
     };
     use pretty_assertions::assert_eq;
@@ -64,6 +64,7 @@ mod tests {
             local_snapshot: false,
             doctrine: DoctrineSource::NotServed,
             guidance: GuidanceSource::NotServed,
+            judilibre: JudilibreSource::NotServed,
         };
         CoverageOutput {
             coverage: coverage(env, &facts, &Fond::ALL),

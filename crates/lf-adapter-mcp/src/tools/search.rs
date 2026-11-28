@@ -6,7 +6,7 @@
 
 use lf_application::{
     input::SearchInput,
-    ports::{AuditLog, Clock, LegalCorpus, PublicGuidance, TaxDoctrine},
+    ports::{AuditLog, Clock, JudicialOpenData, LegalCorpus, PublicGuidance, TaxDoctrine},
 };
 use rmcp::{Json, model::JsonObject};
 use rmcp_macros::{tool, tool_router};
@@ -36,8 +36,8 @@ fr_get_act, JURITEXT/CONSTEXT/CETATEXT: fr_get_decision, CNILTEXT: fr_get_delibe
 KALITEXT: fr_get_convention, ACCOTEXT: fr_get_company_agreement); CODE hits list `articles`.";
 
 #[tool_router(router = search_router, vis = "pub(crate)")]
-impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine, G: PublicGuidance>
-    LegifranceServer<C, A, K, D, G>
+impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine, G: PublicGuidance, J: JudicialOpenData>
+    LegifranceServer<C, A, K, D, G, J>
 {
     #[tool(
         name = "fr_search",

@@ -7,6 +7,7 @@
 use std::future::Future;
 
 use super::LegalService;
+use crate::ports::JudicialOpenData;
 use crate::{
     audited::CallMeta,
     error::AppError,
@@ -17,8 +18,8 @@ use crate::{
     usecase::get_decision::GetDecisionUseCase,
 };
 
-impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine, G: PublicGuidance>
-    LegalService<C, A, K, D, G>
+impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine, G: PublicGuidance, J: JudicialOpenData>
+    LegalService<C, A, K, D, G, J>
 {
     /// `fr_get_decision` : une décision de justice, son résumé, une fenêtre de son texte ou ses
     /// passages (05 §5.4). Métrique d'audit : les caractères renvoyés. `cancel` se résout quand le

@@ -30,5 +30,6 @@ pub(crate) use rank::count_f64;
 pub use rank::{B, K1, Scored, rank};
 pub use summary::{
     DispositifRule, LEAD_MIN_CHARS, SUMMARY_CAP_CHARS, Summary, SummarySource, summary,
+    summary_with_dispositif,
 };
 pub use window::{Window, window};

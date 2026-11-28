@@ -26,6 +26,7 @@ pub(crate) mod decision;
 pub(crate) mod deliberation;
 #[cfg(test)]
 pub(crate) mod fixtures;
+pub(crate) mod judilibre;
 pub(crate) mod m6;
 pub(crate) mod m7;
 #[cfg(test)]

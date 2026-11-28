@@ -5,6 +5,7 @@
 //! d'erreur ; `complete_gate` tient son débit (10 par seconde et par processus, D13).
 
 use super::LegalService;
+use crate::ports::JudicialOpenData;
 use crate::{
     input::CompleteInput,
     output::complete::CompleteOutput,
@@ -12,8 +13,8 @@ use crate::{
     usecase::complete::CompleteUseCase,
 };
 
-impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine, G: PublicGuidance>
-    LegalService<C, A, K, D, G>
+impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine, G: PublicGuidance, J: JudicialOpenData>
+    LegalService<C, A, K, D, G, J>
 {
     /// Complète la variable `code` du gabarit `legifrance://code/{code}/article/{num}` : au plus
     /// 100 slugs de codes, préfixes d'abord. Jamais d'erreur ni de ligne d'audit : une variable
