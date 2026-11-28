@@ -522,15 +522,14 @@ Comptage : `len()` Python sur le texte exact, sans saut de ligne final, refait l
 - ligne livrée, 248 caractères (sans adresse ; « Legifrance » sans accent, comme ailleurs dans ce texte ; macro `public_guidance!` de `text.rs`) : `` 6. Public guidance: `fr_search_service_public` then `fr_get_service_public` read the Service-Public practical sheets (DILA): plain-language administrative guidance, not the law; a sheet lists in `legal_references` the Legifrance texts it relies on. `` ;
 - la variante v0.3 mesure **3 937 caractères** (3 945 octets) sur le binaire, soit 63 de marge sous 4 000 ; les variantes v0.1 (3 100) et v0.2 (3 301) n'ont pas bougé ; le verrou porte `instructions_chars` 3 937 (ADR-0033, décision 14).
 
-**Outils Judilibre (ADR-0035, AM-103 ; non livré, jalon MJ).** Avec 63 caractères de marge, une ligne 7 qui cite `fr_search_judilibre` et `fr_get_judilibre` ne tient pas telle quelle. Proposé, texte figé à T-MJ-32 :
+**Outils Judilibre (ADR-0035, AM-103 ; jalon MJ, livré dans le code, pas encore publié : 1.6.0 proposée).** Avec 63 caractères de marge, une ligne 7 qui cite `fr_search_judilibre` et `fr_get_judilibre` ne tenait pas telle quelle. Depuis la livraison (T-MJ-32) :
 
 - le plafond **reste à 4 000** caractères ;
-- les lignes 5 et 6, propres à la v0.3, sont resserrées sans changer de sens. Par exemple, la ligne 5 passe de 185 à 136 caractères : `` 5. Tax doctrine: `fr_search_bofip` then `fr_get_bofip` read BOFiP, the tax administration's reading of tax law in force today, not the law. `` La ligne 6 passe de 245 à 181 caractères : `` 6. Public guidance: `fr_search_service_public` then `fr_get_service_public` read Service-Public sheets (DILA): plain-language guidance, not the law; `legal_references` lists its texts. `` ;
-- ligne 7 proposée, de 164 caractères : `` 7. Court rulings: `fr_search_judilibre` then `fr_get_judilibre` read Judilibre, the Cour de cassation open data, with appeal and lower courts; never to assess a judge. `` ;
-- total estimé à **3 992 caractères**, soit 8 de marge ; les variantes v0.1 (3 100) et v0.2 (3 301) ne bougent pas ;
-- si le texte ne tient pas sous 4 000 sans perdre de sens, le travail s'arrête et le propriétaire décide (ADR-0035, décision 13).
+- les lignes 5 et 6, propres à la v0.3, sont resserrées sans changer de sens. La ligne 5 passe de 185 à 136 caractères (macro `tax_doctrine!`) : `` 5. Tax doctrine: `fr_search_bofip` then `fr_get_bofip` read BOFiP, the tax administration's reading of tax law in force today, not the law. `` La ligne 6 passe de 245 à 181 caractères (macro `public_guidance!`) : `` 6. Public guidance: `fr_search_service_public` then `fr_get_service_public` read Service-Public sheets (DILA): plain-language guidance, not the law; `legal_references` lists its texts. `` ;
+- ligne 7 livrée, 164 caractères (macro `court_rulings!`) : `` 7. Court rulings: `fr_search_judilibre` then `fr_get_judilibre` read Judilibre, the Cour de cassation open data, with appeal and lower courts; never to assess a judge. `` ;
+- la variante v0.3 mesure **3 992 caractères** (4 000 octets) sur le binaire, soit 8 de marge sous 4 000 ; les variantes v0.1 (3 100) et v0.2 (3 301) n'ont pas bougé ; le verrou porte `instructions_chars` 3 992.
 
-Tests : `instructions_fit_budget`, `instructions_cite_exactly_the_tools_of_their_surface` (8, 10 puis 17 outils cités), `cargo xtask instructions-size`.
+Tests : `instructions_fit_budget`, `instructions_cite_exactly_the_tools_of_their_surface` (8, 10 puis 19 outils cités), `cargo xtask instructions-size`.
 
 ### 4.3 Règles de maintenance
 
@@ -1096,9 +1095,9 @@ Catalogue des lacunes (rédaction définitive demandée par 03 §4.8) :
 
 - **Tests** : domaine (T-MS-16) `service_public_gap_follows_the_source_state`, `service_public_gaps_never_change_status` ; vue (T-MS-32) `service_public_family_is_always_rendered_at_v03`, `service_public_gaps_only_at_v03` ; inchangés et verts : `the_v01_sandbox_response_stays_near_its_target` et le snapshot `coverage_v01_sandbox` ; `every_registered_tool_is_in_a_family_or_general` couvre dix-sept outils. Réécrits (T-MS-32) : dans `views/coverage.rs`, le nombre de familles, la dernière famille (`SERVICE_PUBLIC`, après `BOFIP`) et la dernière lacune, les listes de fonds et d'identifiants attendues ; `check_config_and_coverage_send_nothing` (`crates/lf-app/tests/cli.rs`). `gap_family` reconnaît `SERVICE_PUBLIC` comme `BOFIP`.
 
-**Judilibre (ADR-0035, AM-103 ; non livré, jalon MJ).** Avec les outils Judilibre (§5.18, §5.19), la réponse de `fr_coverage` change, mais pas son descripteur.
+**Judilibre (ADR-0035, AM-103 ; jalon MJ, livré dans le code, pas encore publié).** Avec les outils Judilibre (§5.18, §5.19), la réponse de `fr_coverage` change, mais pas son descripteur.
 
-- **Famille.** `families` gagne `{"fond": "JUDILIBRE", "label": …, "tools": ["fr_search_judilibre", "fr_get_judilibre"]}` à la surface v0.3, que la source soit active ou coupée. Elle vient après `SERVICE_PUBLIC`, par le même chemin à part. Libellé proposé : « Court decisions: Judilibre, open data of the Cour de cassation (Cour de cassation, courts of appeal, judicial and commercial courts, labour courts) ».
+- **Famille.** `families` gagne `{"fond": "JUDILIBRE", "label": …, "tools": ["fr_search_judilibre", "fr_get_judilibre"]}` à la surface v0.3, que la source soit active ou coupée. Elle vient après `SERVICE_PUBLIC`, par le même chemin à part. Libellé livré : « Court decisions: Judilibre, open data of the Cour de cassation (Cour de cassation, courts of appeal, judicial and commercial courts, labour courts) ».
 - **FR-005**, à la surface v0.3 seulement :
   - `missing` : « Only a selection of courts of appeal and almost no first-instance decisions are on Légifrance (JURI). » ;
   - `fallback` : « Search them with fr_search_judilibre (Judilibre, open data of the Cour de cassation). ».
@@ -1112,7 +1111,7 @@ Catalogue des lacunes (rédaction définitive demandée par 03 §4.8) :
 | FR-111 | JUDILIBRE | The Judilibre source is turned off (LF_JUDILIBRE, or offline mode): fr_search_judilibre and fr_get_judilibre fail with config_error. | The operator can set LF_JUDILIBRE=on; it needs PISTE credentials and an application subscribed to the Judilibre API (free). | si la source est coupée (`LF_JUDILIBRE=off`, valeur invalide, ou `LF_DILA_DIR` défini sans `LF_JUDILIBRE=on`) |
 
 - **Application non abonnée.** Un refus 403 n'est pas une lacune : `fr_coverage` n'appelle aucun port (`coverage_makes_no_port_call`). C'est le `config_error` de l'outil qui le dit.
-- **Tests proposés** :
+- **Tests** :
   - domaine : `judilibre_gap_follows_the_source_state`, `judilibre_gaps_never_change_status` ;
   - vue : `judilibre_family_is_always_rendered_at_v03`, `judilibre_gaps_and_fr005_only_at_v03` ;
   - inchangés : `the_v01_sandbox_response_stays_near_its_target` et le snapshot `coverage_v01_sandbox` ;
@@ -1563,11 +1562,11 @@ L'outil n'envoie aucune requête vers Légifrance : l'appelant lit les textes av
 
 **Erreurs** : `invalid_arg` ; `not_found` `No Service-Public sheet or folder {id} for {audience}. Try audience {other}, or search with fr_search_service_public.` ; `config_error`, `rate_limited`, `upstream_error`, `audit_error` comme au §5.16.
 
-### 5.18 `fr_search_judilibre` (proposé au jalon MJ : ADR-0035 ; version 1.6.0)
+### 5.18 `fr_search_judilibre` (livré au jalon MJ : ADR-0035 ; version 1.6.0 proposée)
 
 **Objectif.** Trouver des décisions de justice de l'ordre judiciaire dans la base open data de la Cour de cassation (Judilibre). La base couvre la Cour de cassation, les cours d'appel, les tribunaux judiciaires, les tribunaux de commerce et les conseils de prud'hommes, bien au-delà de la sélection publiée sur Légifrance (JURI).
 
-**Description** (proposée, figée à T-MJ-30) :
+**Description** (livrée, 621 caractères ; texte figé au verrou, sans adresse ; titre `Search Judilibre court decisions`) :
 - titre : `Search Judilibre court decisions` ;
 - texte sans adresse ;
 - « for example » plutôt que « e.g. » (AM-63).
@@ -1591,7 +1590,7 @@ Search Judilibre, the open data of French judicial court decisions published by 
 
 Ordre de validation : `query`, `match`, `courts`, `part`, dates, `sort`, `page_size`, `page`. Tout refus a lieu avant le réseau.
 
-**Requête amont.** `GET {hôte API}/cassation/judilibre/v1.0/search`, avec ces seuls paramètres, plus `resolve_references=true` si V-241 le confirme. Jeton `Bearer` du gestionnaire PISTE ; limiteur et sémaphore partagés avec Légifrance (00 §8).
+**Requête amont.** `GET {hôte API}/cassation/judilibre/v1.0/search`, avec ces seuls paramètres, plus `resolve_references=true` si V-241 le confirme (non envoyé à la livraison : V-241 reste ouverte). Jeton `Bearer` du gestionnaire PISTE ; limiteur et sémaphore partagés avec Légifrance (00 §8).
 
 **Sortie** (`CaseLawSearchView`) :
 - `total`, `page`, `hits` ;
@@ -1600,10 +1599,10 @@ Ordre de validation : `query`, `match`, `courts`, `part`, dates, `sort`, `page_s
   - `id`, `court` (intitulé de la juridiction et de son siège), `chamber?`, `formation?` (Cour de cassation), `date` (telle que publiée) ;
   - `number?`, `ecli?`, `solution?`, `publication?` ;
   - `summary?` (Cour de cassation) ou `excerpt?` (premier extrait surligné, balises retirées, 300 caractères au plus) ;
-  - `themes?` (trois au plus), `citation`, `source_url?` ;
+  - `themes?` (trois au plus), `citation`, `source_url?` (omis à la livraison : V-239 reste ouverte) ;
 - `attribution`, `consulted_on` ;
 - `case_law_note` : constante (décisions pseudonymisées, telles que publiées ; profilage interdit) ;
-- `note?` : page vide malgré un `total` positif ; ou aucun résultat, avec une invitation à essayer `match: any`, moins de mots ou d'autres juridictions.
+- `note?` : page vide malgré un `total` positif (anomalie de l'API, ou résultats tous illisibles, écartés et comptés) ; ou aucun résultat, avec une invitation à essayer `match: any`, moins de mots ou d'autres juridictions.
 
 Plafond du §6.4, comme au §5.14.
 
@@ -1619,11 +1618,11 @@ Plafond du §6.4, comme au §5.14.
 
 Aucune erreur ne porte un mot de la recherche.
 
-### 5.19 `fr_get_judilibre` (proposé au jalon MJ : ADR-0035 ; version 1.6.0)
+### 5.19 `fr_get_judilibre` (livré au jalon MJ : ADR-0035 ; version 1.6.0 proposée)
 
 **Objectif.** Lire une décision de Judilibre par son identifiant, entière ou par partie, avec le retour progressif des lectures longues (§5.0.2, §5.0.3), ses mentions obligatoires et ses liens.
 
-**Description** (proposée, figée à T-MJ-30 ; titre `Read a Judilibre decision`) :
+**Description** (livrée, 629 caractères ; texte figé au verrou, sans adresse ; titre `Read a Judilibre decision`) :
 
 ```text
 Read one decision from Judilibre (Cour de cassation open data) by its id from fr_search_judilibre. Returns the court, seat, chamber or formation and date, which must be cited with the decision, then its text as published, progressively like fr_get_text; `part` reads only one part, for example motivations (the reasons) or dispositif (the ruling). Also lists the texts applied (visa, to check with fr_resolve), related decisions with their ids, and the decision under appeal. Decisions are pseudonymised: never try to re-identify a party, and never use them to evaluate, compare or predict the practice of a judge or court clerk.
@@ -1636,14 +1635,14 @@ Read one decision from Judilibre (Cour de cassation open data) by its id from fr
 
 Ordre de validation : `id`, `part`, paramètres communs. Tout refus a lieu avant le réseau.
 
-**Requête amont.** `GET {hôte API}/cassation/judilibre/v1.0/decision?id={id}`, plus `resolve_references=true` si V-241 le confirme.
+**Requête amont.** `GET {hôte API}/cassation/judilibre/v1.0/decision?id={id}`, plus `resolve_references=true` si V-241 le confirme (non envoyé à la livraison).
 
 **Comportement.**
 
 | Cas | Réponse |
 |---|---|
 | Décision lue | `summary` : le sommaire de la Cour de cassation s'il existe (`summary_source` `official`), sinon le début du dispositif (`dispositif`), sinon le début du texte (`lead`) ; `text` ou `passages` selon §5.0.3 |
-| `part` demandée et présente | lecture limitée à la partie : fragments pris par début croissant, joints par une ligne vide ; `text_length` est celle de la partie |
+| `part` demandée et présente | lecture limitée à la partie : fragments pris par début croissant, ceux qui se chevauchent fusionnés (une partie n'est jamais plus longue que le texte), joints par une ligne vide ; 256 fragments au plus par partie ; `text_length` est celle de la partie |
 | `part` demandée, mais zones ou partie absentes | texte entier, avec une `note` (partie non délimitée dans cette décision) |
 | Indices de zone hors du texte ou au milieu d'un caractère | bornés au texte et ramenés à la limite de caractère précédente (le dernier `end` dépasse la longueur de 1 dans les décisions lues le 2026-11-27) |
 | `to_be_deleted` vrai, ou 404 | `not_found` |
@@ -1651,13 +1650,18 @@ Ordre de validation : `id`, `part`, paramètres communs. Tout refus a lieu avant
 
 **Sortie** (`CaseLawView`) :
 - identification et mentions : `id`, `court`, `chamber?`, `formation?`, `date` ;
-- métadonnées : `number?`, `ecli?`, `solution?`, `publication?`, `themes?`, `citation`, `source_url?`, `updated` (`update_date`) ;
+- métadonnées : `number?`, `ecli?`, `solution?`, `publication?`, `themes?`, `citation`, `source_url?` (omis à la livraison : V-239), `updated?` (`update_date`, absent si l'API n'en donne pas) ;
 - liens :
   - `visa?` : `[{title}]`, balises retirées ;
-  - `related?` : `[{title, id?, legifrance_id?}]` ;
+  - `related?` : `[{title, id?, legifrance_id?}]` ; `legifrance_id` seulement pour `JURITEXT` suivi d'exactement douze chiffres ;
   - `contested?` : `{court, chamber?, date?, solution?}` ;
 - `attribution`, `case_law_note` ;
-- les champs de lecture (§5.0.3).
+- les champs de lecture (§5.0.3) ; le résumé tiré du dispositif est mis en forme comme le texte (caractères invisibles retirés, blancs repliés).
+
+**Bornes et nettoyage** (revue du jalon, 2026-11-27) :
+- `themes`, `visa` et `related` gardent 100 entrées chacun au plus (`DECISION_LIST_MAX`) : borne de sûreté contre une réponse anormale ; la plus fournie des décisions lues en a 19, 3 et 2 ;
+- tout champ court (numéro, ECLI, dates, codes, thèmes, siège, décision attaquée) perd ses caractères invisibles et ses sauts de ligne (`short_field`), dans les résultats de recherche comme dans la décision ;
+- au-delà du plafond dur (§6.4), la vue retire d'abord ce qui pèse le plus : la fenêtre ou les passages tant qu'ils pèsent plus que les intitulés des liens, sinon les derniers rapprochements puis les derniers visas, avec la note `Some related decisions or applied texts were left out to fit the response size limit.`
 
 Aucun nom de personne n'est jamais rendu dans un champ à part. Les noms des magistrats et des greffiers restent dans le texte, tel que publié.
 
@@ -1769,6 +1773,8 @@ L'écart de l'estimation à la mesure tient aux schémas de sortie et aux `$defs
 
 **Mesure du jalon MS (2026-11-24, dix-sept outils ; livré en 1.5.0).** `tools/list` : **49 792 octets** (`sizes.tools_list_bytes` ; 42 492 à quinze outils au verrou de la 1.4.1, 41 878 au jalon MB, +7 300 pour `fr_search_service_public` et `fr_get_service_public` : deux descriptions de 663 et 641 caractères, deux schémas d'entrée et deux schémas de sortie). Plafond recalculé par la règle d'AM-63 : 49 792 plus 3 % (51 285,76), arrondi à la centaine supérieure, soit **51 300**, 1 508 octets de marge (ADR-0033, décision 14). Même valeur dans `TOOLS_LIST_BUDGETS` de `xtask/src/lock_descriptors/checks.rs` et dans `descriptor_size_budget` (`crates/lf-adapter-mcp/tests/budgets.rs`). Les entrées des quinze outils en place sont inchangées au verrou. Instructions : 3 937 caractères (§4.2). Cinq cas extrêmes s'ajoutent à `every_tool_response_under_hard_cap` (`budgets.rs`) : la recherche de 50 résultats aux titres de 1 000 caractères, la même aux titres et chemins chargés d'échappements, la lecture d'une fenêtre de 40 000 caractères chargée d'échappements, la lecture avec 60 références aux titres longs, la lecture d'un dossier de 100 entrées.
 
+**Mesure du jalon MJ (2026-11-27, dix-neuf outils ; pas encore publié).** `tools/list` : **57 244 octets** (`sizes.tools_list_bytes` ; 49 792 à dix-sept outils au verrou de la 1.5.0, +7 452 pour `fr_search_judilibre` et `fr_get_judilibre` : deux descriptions de 621 et 629 caractères, deux schémas d'entrée et deux schémas de sortie). Plafond recalculé par la règle d'AM-63 : 57 244 plus 3 % (58 961,32), arrondi à la centaine supérieure, soit **59 000**, 1 756 octets de marge (ADR-0035, décision 13). Même valeur dans `TOOLS_LIST_BUDGETS` de `xtask/src/lock_descriptors/checks.rs` et dans `descriptor_size_budget` (`crates/lf-adapter-mcp/tests/budgets.rs`). Les entrées des dix-sept outils en place sont inchangées au verrou (même `sha256`, G1). Instructions : 3 992 caractères (§4.2). Quatre cas extrêmes s'ajoutent à `every_tool_response_under_hard_cap` (`budgets.rs`) : la recherche de 50 résultats aux sommaires de 2 000 caractères (rendue, 44 sommaires raccourcis) ; la même aux sommaires chargés d'échappements (refusée avant le réseau, `page_size` 48 au plus suggéré) ; la lecture d'une fenêtre de 40 000 caractères chargée d'échappements (rendue, fenêtre ramenée à 19 998) ; la lecture avec 150 visas et 100 rapprochements longs (rendue : texte entier, rapprochements retirés, 105 visas gardés, avec une note).
+
 Révision 2 : descriptions recomptées exactement (sens des dates absentes, défauts et suites demandés par 00 §6, 00 §4), puis le 2026-10-16 (défaut de `fond` dans `fr_search`, de `passages` dans `fr_get_text` : 27 caractères, sans effet sur les arrondis des lignes `tools/list`) ; les deux lignes `tools/list` sont l'estimation initiale augmentée de ces écarts et des champs ajoutés (`attribution`, `consulted_on`, `nor`, `title`, puis `idcc`, `total_articles` en v0.2), sans `$schema` (§2.5).
 
 Lecture :
@@ -1784,7 +1790,7 @@ Leviers de réduction, par ordre d'efficacité, à appliquer si la mesure de M4 
 4. descriptions des paramètres de lecture communs raccourcies (elles sont répétées 3 fois) ;
 5. en dernier recours, phrases de description fusionnées, en restant à 3 phrases au moins (00 §6).
 
-Budgets CI (test `descriptor_size_budget`, recalibrés sur la mesure réelle : voir « Mesure réelle ») : `tools/list` ≤ 20 000 octets en v0.1, 24 000 en v0.2, **32 900 en v0.3, relevé à 36 500 en 1.1.0** (34 500 posé par Q27 = A, puis remplacé par la règle d'AM-63 sur la mesure finale de 35 424 octets, AM-73 ; 29 000 à l'origine), **puis à 43 200 au jalon MB** (41 878 octets à quinze outils, AM-93), **puis à 51 300 au jalon MS** (49 792 octets à dix-sept outils, ADR-0033) ; `instructions` ≤ 4 000 caractères depuis le jalon MS (3 700 depuis le jalon MB, 3 500 jusqu'à la 1.2.0) ; chaque description ≤ 1 000 caractères (bien sous 4 096).
+Budgets CI (test `descriptor_size_budget`, recalibrés sur la mesure réelle : voir « Mesure réelle ») : `tools/list` ≤ 20 000 octets en v0.1, 24 000 en v0.2, **32 900 en v0.3, relevé à 36 500 en 1.1.0** (34 500 posé par Q27 = A, puis remplacé par la règle d'AM-63 sur la mesure finale de 35 424 octets, AM-73 ; 29 000 à l'origine), **puis à 43 200 au jalon MB** (41 878 octets à quinze outils, AM-93), **puis à 51 300 au jalon MS** (49 792 octets à dix-sept outils, ADR-0033), **puis à 59 000 au jalon MJ** (57 244 octets à dix-neuf outils, ADR-0035) ; `instructions` ≤ 4 000 caractères depuis le jalon MS (3 700 depuis le jalon MB, 3 500 jusqu'à la 1.2.0) ; chaque description ≤ 1 000 caractères (bien sous 4 096).
 
 ---
 
