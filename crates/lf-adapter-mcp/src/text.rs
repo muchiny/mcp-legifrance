@@ -17,12 +17,13 @@ pub enum Surface {
     /// v0.2 : plus la vérification et la résolution de citations (M6).
     V02,
     /// v0.3 : plus la recherche multi-fonds, les prompts et les ressources (M7) ; depuis le jalon
-    /// MB, plus les deux outils du BOFiP, et depuis le jalon MS, les deux de Service-Public (pas
-    /// de surface `V04` : celle-ci, seule servie, s'étend).
+    /// MB, plus les deux outils du BOFiP, depuis le jalon MS, les deux de Service-Public, et depuis
+    /// le jalon MJ, les deux de Judilibre (pas de surface `V04` : celle-ci, seule servie,
+    /// s'étend).
     V03,
 }
 
-/// Surface servie par ce binaire : la complète, qui annonce les dix-sept outils de
+/// Surface servie par ce binaire : la complète, qui annonce les dix-neuf outils de
 /// `ToolName::ALL`, les resources, les prompts et les complétions.
 pub const SURFACE: Surface = Surface::V03;
 
@@ -114,22 +115,32 @@ macro_rules! limits {
 }
 
 /// Ligne du BOFiP (jalon MB), en v0.3 seulement : les deux outils, ce qu'est la doctrine fiscale
-/// et sa limite. Aucune adresse : seuls les liens vers Légifrance sont admis.
+/// et sa limite. Aucune adresse : seuls les liens vers Légifrance sont admis. Resserrée au jalon
+/// MJ, sans changer de sens, pour faire place à la ligne 7.
 macro_rules! tax_doctrine {
     () => {
         "Tax doctrine: `fr_search_bofip` then `fr_get_bofip` read BOFiP, the tax administration's \
-         published doctrine: its reading of tax law, not the law itself, and only what is in \
-         force today."
+         reading of tax law in force today, not the law."
     };
 }
 
 /// Ligne 6 de « Workflow » à la v0.3, depuis le jalon MS (ADR-0033, 05 §4.2) : les deux outils de
-/// Service-Public, sans adresse (seuls les liens vers Légifrance sont admis dans ce texte).
+/// Service-Public, sans adresse (seuls les liens vers Légifrance sont admis dans ce texte) ;
+/// resserrée au jalon MJ, sans changer de sens, pour faire place à la ligne 7.
 macro_rules! public_guidance {
     () => {
-        "Public guidance: `fr_search_service_public` then `fr_get_service_public` read the \
-         Service-Public practical sheets (DILA): plain-language administrative guidance, not the \
-         law; a sheet lists in `legal_references` the Legifrance texts it relies on."
+        "Public guidance: `fr_search_service_public` then `fr_get_service_public` read \
+         Service-Public sheets (DILA): plain-language guidance, not the law; `legal_references` \
+         lists its texts."
+    };
+}
+
+/// Ligne 7 de « Workflow » à la v0.3, depuis le jalon MJ (ADR-0035, 05 §4.2) : les deux outils de
+/// Judilibre, ce que couvre la source et l'interdiction de profiler les magistrats (décision 7).
+macro_rules! court_rulings {
+    () => {
+        "Court rulings: `fr_search_judilibre` then `fr_get_judilibre` read Judilibre, the Cour de \
+         cassation open data, with appeal and lower courts; never to assess a judge."
     };
 }
 
@@ -202,9 +213,10 @@ pub(crate) const INSTRUCTIONS_V02: &str = concat!(
     tail!()
 );
 
-/// Instructions de la surface v0.3 : 17 outils cités (05 §4.1 et §4.2). Depuis le jalon MB, une
-/// ligne 5 nomme les deux outils du BOFiP, et depuis le jalon MS, une ligne 6 ceux de
-/// Service-Public ; les textes des v0.1 et v0.2 n'ont pas bougé.
+/// Instructions de la surface v0.3 : 19 outils cités (05 §4.1 et §4.2). Depuis le jalon MB, une
+/// ligne 5 nomme les deux outils du BOFiP, depuis le jalon MS, une ligne 6 ceux de Service-Public,
+/// et depuis le jalon MJ, une ligne 7 ceux de Judilibre ; les textes des v0.1 et v0.2 n'ont pas
+/// bougé.
 pub(crate) const INSTRUCTIONS_V03: &str = concat!(
     head!(),
     "1. Find: `fr_search` searches one fond, paged with `page` and `has_more`; \
@@ -219,6 +231,8 @@ pub(crate) const INSTRUCTIONS_V03: &str = concat!(
     tax_doctrine!(),
     "\n6. ",
     public_guidance!(),
+    "\n7. ",
+    court_rulings!(),
     "\n",
     tail!()
 );
@@ -235,8 +249,8 @@ mod tests {
     /// Les trois surfaces, de la plus petite à la plus riche.
     const SURFACES: [Surface; 3] = [Surface::V01, Surface::V02, Surface::V03];
 
-    /// Outils cités, par surface : les 8 de la v0.1, puis M6, puis M7, les deux du BOFiP et les
-    /// deux de Service-Public (05 §4.2).
+    /// Outils cités, par surface : les 8 de la v0.1, puis M6, puis M7, les deux du BOFiP, les deux
+    /// de Service-Public et les deux de Judilibre (05 §4.2).
     fn cited_tools(surface: Surface) -> BTreeSet<&'static str> {
         let v01 = ToolName::ALL[..8].iter().map(|tool| tool.as_str());
         let m6 = [ToolName::FR_VERIFY_CITATIONS, ToolName::FR_RESOLVE].map(ToolName::as_str);
@@ -245,10 +259,11 @@ mod tests {
         let mb = [ToolName::FR_SEARCH_BOFIP, ToolName::FR_GET_BOFIP].map(ToolName::as_str);
         let ms = [ToolName::FR_SEARCH_SERVICE_PUBLIC, ToolName::FR_GET_SERVICE_PUBLIC]
             .map(ToolName::as_str);
+        let mj = [ToolName::FR_SEARCH_JUDILIBRE, ToolName::FR_GET_JUDILIBRE].map(ToolName::as_str);
         match surface {
             Surface::V01 => v01.collect(),
             Surface::V02 => v01.chain(m6).collect(),
-            Surface::V03 => v01.chain(m6).chain(m7).chain(mb).chain(ms).collect(),
+            Surface::V03 => v01.chain(m6).chain(m7).chain(mb).chain(ms).chain(mj).collect(),
         }
     }
 
@@ -302,8 +317,11 @@ mod tests {
         });
         // Jalon MB (AM-93) : la v0.3 gagne la ligne du BOFiP, 189 caractères avec son numéro ;
         // jalon MS (ADR-0033) : celle de Service-Public, 249 avec son saut de ligne, toute en
-        // ASCII ; les v0.1 et v0.2 sont identiques à l'octet (G1 bis).
-        assert_eq!(measured, [(3_100, 3_108), (3_301, 3_309), (3_937, 3_945)]);
+        // ASCII ; jalon MJ (ADR-0035, décision 13) : les lignes 5 et 6 passent de 185 à 136 et de
+        // 245 à 181 caractères, sans changer de sens, et la ligne 7 de Judilibre en ajoute 168
+        // avec son saut de ligne et son numéro, toute en ASCII : 3 992, 8 de marge sous 4 000. Les
+        // v0.1 et v0.2 sont identiques à l'octet (G1 bis).
+        assert_eq!(measured, [(3_100, 3_108), (3_301, 3_309), (3_992, 4_000)]);
     }
 
     /// D-12 : glossaire de `etat`, résumé jamais complet, nuance de « verbatim » pour les tableaux.
@@ -359,7 +377,7 @@ mod tests {
             assert_eq!(cited, cited_tools(surface), "{surface:?}");
         }
         let counts = SURFACES.map(|surface| cited_tools(surface).len());
-        assert_eq!(counts, [8, 10, 17]);
+        assert_eq!(counts, [8, 10, 19]);
     }
 
     #[test]

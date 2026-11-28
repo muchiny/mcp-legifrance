@@ -8,7 +8,7 @@
 
 use lf_application::{
     input::SearchServicePublicInput,
-    ports::{AuditLog, Clock, LegalCorpus, PublicGuidance, TaxDoctrine},
+    ports::{AuditLog, Clock, JudicialOpenData, LegalCorpus, PublicGuidance, TaxDoctrine},
 };
 use rmcp::{Json, model::JsonObject};
 use rmcp_macros::{tool, tool_router};
@@ -29,8 +29,8 @@ use crate::{
 pub(crate) const DESCRIPTION: &str = "Search the practical sheets of Service-Public.gouv.fr, the French administration's plain-language guide to rights and procedures (DILA): what the rules mean for a given situation, not the law itself. The search runs locally on the titles and summaries of the sheets and folders, never on their full text: use a few plain words, accents and case aside; a word also matches the longer words it starts. `audience` picks particuliers (default), entreprendre (businesses and the self-employed) or all. The first search of the day downloads the day's archive (about 24 MB). Returns ids (F for a sheet, N for a folder) to read with fr_get_service_public, never the text.";
 
 #[tool_router(router = search_service_public_router, vis = "pub(crate)")]
-impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine, G: PublicGuidance>
-    LegifranceServer<C, A, K, D, G>
+impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine, G: PublicGuidance, J: JudicialOpenData>
+    LegifranceServer<C, A, K, D, G, J>
 {
     #[tool(
         name = "fr_search_service_public",

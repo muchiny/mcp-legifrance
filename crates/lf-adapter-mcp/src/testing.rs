@@ -33,11 +33,15 @@ use lf_application::{
     audited::{AuditMode, AuditPolicy},
     budget::ResponseBudget,
     ports::{
-        ArticleAt, AuditError, AuditLog, AuditRecord, CorpusError, DoctrineError, GuidanceError,
-        GuidanceFound, GuidanceRead, LegalCorpus, PisteEnvironment, PublicGuidance, TaxDoctrine,
+        ArticleAt, AuditError, AuditLog, AuditRecord, CaseLawError, CorpusError, DoctrineError,
+        GuidanceError, GuidanceFound, GuidanceRead, JudicialOpenData, LegalCorpus,
+        PisteEnvironment, PublicGuidance, TaxDoctrine,
     },
-    service::{ConfigurationState, DoctrineSource, GuidanceSource, LegalService, ServiceSettings},
-    testing::{FakeCorpus, FakeDoctrine, FakeGuidance, FixedClock, MemoryAuditLog},
+    service::{
+        ConfigurationState, DoctrineSource, GuidanceSource, JudilibreSource, LegalService,
+        ServiceSettings,
+    },
+    testing::{FakeCaseLaw, FakeCorpus, FakeDoctrine, FakeGuidance, FixedClock, MemoryAuditLog},
 };
 use lf_domain::{
     date::{CivilDate, VersionDate},
@@ -48,6 +52,7 @@ use lf_domain::{
     },
     guidance::{Audience, GuidanceQuery, SheetId},
     id::{AccoTextId, ArticleId, CnilTextId, DecisionId, KaliTextId, LegiTextId},
+    judilibre::{CaseLawDoc, CaseLawPage, CaseLawQuery, JudilibreId},
     search::{NumberQuery, SearchQuery},
 };
 use rmcp::{RoleClient, ServerHandler, ServiceExt, service::RunningService};
@@ -190,9 +195,28 @@ impl PublicGuidance for SharedGuidance {
     }
 }
 
+/// Source de Judilibre partagée : le service possède sa source, le test en garde une poignée.
+pub struct SharedCaseLaw(pub Arc<FakeCaseLaw>);
+
+impl JudicialOpenData for SharedCaseLaw {
+    async fn search(&self, query: &CaseLawQuery) -> Result<CaseLawPage, CaseLawError> {
+        self.0.search(query).await
+    }
+
+    async fn get(&self, id: &JudilibreId) -> Result<CaseLawDoc, CaseLawError> {
+        self.0.get(id).await
+    }
+}
+
 /// Le serveur monté sur les doubles partagés d'une [`Fixture`].
-pub type FixtureServer =
-    LegifranceServer<SharedCorpus, SharedAudit, FixedClock, SharedDoctrine, SharedGuidance>;
+pub type FixtureServer = LegifranceServer<
+    SharedCorpus,
+    SharedAudit,
+    FixedClock,
+    SharedDoctrine,
+    SharedGuidance,
+    SharedCaseLaw,
+>;
 
 /// Un serveur de test et les poignées sur ce qu'il contient.
 ///
@@ -207,6 +231,9 @@ pub struct Fixture {
     /// Fausse source de Service-Public du service : programmer `push_search` et `push_get`,
     /// relire les appels. Sans réponse programmée, un appel rend une erreur lisible.
     pub guidance: Arc<FakeGuidance>,
+    /// Faux Judilibre du service : programmer `push_search` et `push_get`, relire les appels.
+    /// Sans réponse programmée, un appel rend une erreur lisible.
+    pub case_law: Arc<FakeCaseLaw>,
     /// Journal d'audit en mémoire du service : relire les lignes (`records`).
     pub audit: Arc<MemoryAuditLog>,
     /// Réglages du service : audit strict, échéance de 60 s, bac à sable, identifiants configurés.
@@ -221,6 +248,7 @@ impl Default for Fixture {
             corpus: Arc::new(FakeCorpus::new()),
             doctrine: Arc::new(FakeDoctrine::new()),
             guidance: Arc::new(FakeGuidance::new()),
+            case_law: Arc::new(FakeCaseLaw::new()),
             audit: Arc::new(MemoryAuditLog::new()),
             settings: ServiceSettings {
                 policy: AuditPolicy {
@@ -229,12 +257,13 @@ impl Default for Fixture {
                     env: PisteEnvironment::Sandbox,
                     server_version: env!("CARGO_PKG_VERSION"),
                 },
-                // Les sources de doctrine et de Service-Public sont actives, comme dans le
-                // binaire par défaut.
+                // Les sources de doctrine, de Service-Public et de Judilibre sont actives, comme
+                // dans le binaire par défaut.
                 configuration: ConfigurationState {
                     credentials_configured: true,
                     doctrine: DoctrineSource::Active,
                     guidance: GuidanceSource::Active,
+                    judilibre: JudilibreSource::Active,
                     ..ConfigurationState::default()
                 },
                 budget: ResponseBudget,
@@ -275,7 +304,8 @@ impl Fixture {
             self.settings.clone(),
         )
         .with_doctrine(SharedDoctrine(Arc::clone(&self.doctrine)))
-        .with_guidance(SharedGuidance(Arc::clone(&self.guidance)));
+        .with_guidance(SharedGuidance(Arc::clone(&self.guidance)))
+        .with_case_law(SharedCaseLaw(Arc::clone(&self.case_law)));
         LegifranceServer::new(Arc::new(service))
     }
 

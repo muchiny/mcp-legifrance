@@ -300,6 +300,7 @@ mod tests {
                     local_snapshot: false,
                     doctrine: lf_domain::coverage::DoctrineSource::Active,
                     guidance: lf_domain::coverage::GuidanceSource::NotServed,
+                    judilibre: lf_domain::coverage::JudilibreSource::NotServed,
                 },
                 &lf_domain::fond::Fond::ALL,
             ),

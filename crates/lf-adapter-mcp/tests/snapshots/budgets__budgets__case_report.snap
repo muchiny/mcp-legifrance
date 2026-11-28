@@ -331,6 +331,45 @@ expression: report
     "under_estimation_target": true
   },
   {
+    "case": "judilibre_search_50_hits_with_2000_char_summaries",
+    "kept": {
+      "hits": 50,
+      "summaries_shortened": 44
+    },
+    "outcome": "rendered",
+    "tool": "fr_search_judilibre",
+    "under_estimation_target": true
+  },
+  {
+    "case": "judilibre_search_50_hits_with_escape_rich_summaries",
+    "kept": {
+      "largest_page_size": 48
+    },
+    "outcome": "refused",
+    "tool": "fr_search_judilibre",
+    "under_estimation_target": null
+  },
+  {
+    "case": "judilibre_get_40000_char_escape_rich_window",
+    "kept": {
+      "text_length": 58498,
+      "window_chars": 19998
+    },
+    "outcome": "rendered",
+    "tool": "fr_get_judilibre",
+    "under_estimation_target": true
+  },
+  {
+    "case": "judilibre_get_with_150_long_visas_and_100_long_related",
+    "kept": {
+      "related": 0,
+      "visa": 105
+    },
+    "outcome": "rendered",
+    "tool": "fr_get_judilibre",
+    "under_estimation_target": false
+  },
+  {
     "case": "coverage",
     "kept": {
       "fonds_listed": true

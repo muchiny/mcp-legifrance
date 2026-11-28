@@ -7,9 +7,9 @@
   },
   "eras_identical": true,
   "instructions": {
-    "chars": 3937,
-    "sha256": "5299df7b0e40a756d19d83268246d257e0feb4a09f70bc3e13344dfa4decb24c",
-    "text": "French law from Légifrance through the official PISTE API (read-only): consolidated laws and decrees (LODA), codes (CODE), Cour de cassation and courts of appeal (JURI), Conseil constitutionnel (CONSTIT), Conseil d'État and administrative courts (CETAT), CNIL deliberations (CNIL), collective labour agreements (KALI) and company agreements (ACCO). Use them for any question on French law or case law.\n\n## Workflow\n1. Find: `fr_search` searches one fond, paged with `page` and `has_more`; `fr_search_all` returns a few hits from several fonds. `fr_resolve` turns a free-text citation (code article, law number, ECLI, case number) into Legifrance ids.\n2. Read by id prefix: LEGITEXT -> `fr_get_act` (metadata and table of contents); LEGIARTI or KALIARTI -> `fr_get_text`; JURITEXT, CONSTEXT or CETATEXT -> `fr_get_decision`; CNILTEXT -> `fr_get_deliberation`; KALITEXT -> `fr_get_convention`; ACCOTEXT -> `fr_get_company_agreement` (metadata only: the full text is a .docx on Légifrance).\n3. Check and navigate: `fr_verify_citations` checks every citation of a draft against the official record; `fr_get_related` lists what an article or a decision cites or is cited by; `fr_diff_article` compares two versions of an article.\n4. Limits: `fr_coverage` says what this server does not cover and whether it runs on the PISTE sandbox.\n5. Tax doctrine: `fr_search_bofip` then `fr_get_bofip` read BOFiP, the tax administration's published doctrine: its reading of tax law, not the law itself, and only what is in force today.\n6. Public guidance: `fr_search_service_public` then `fr_get_service_public` read the Service-Public practical sheets (DILA): plain-language administrative guidance, not the law; a sheet lists in `legal_references` the Legifrance texts it relies on.\n\n## Long texts\n`fr_get_text`, `fr_get_decision` and `fr_get_deliberation` return a short summary by default. A summary is never the whole text: pass `detail=\"full\"` before quoting a threshold, amount or rate; while `next_offset` is present, call again with `offset` set to it. To reach the relevant part directly, pass `focus` with a few words: you get the best passages and their `offset`.\n\n## Hard rules\n- Cite every source with its `citation` and `source_url`; for case law add the `ecli` when present.\n- Never invent an id, an ECLI, an ELI or a citation: take each one from tool output. Many CAA and TA decisions have no ECLI.\n- ELI: none from the API for legislation. `source_url` is the stable Légifrance page, not an ELI; an `eli` field appears only when the API provides one.\n- Attribution: Source : Légifrance / DILA — Licence Ouverte 2.0. When you reuse the data, give this source and the consultation date (`consulted_on` in `fr_coverage`).\n- Versions default to today's date in Paris; to get the law in force on another day, pass `date` to `fr_get_act` (`version_date` in `fr_search`) as YYYY-MM-DD, then read the article ids of that version with `fr_get_text`. Texts are verbatim (table cells are joined with \" | \"): this server does not decide whether a provision applies to a case.\n- `etat`: VIGUEUR, VIGUEUR_ETEN, VIGUEUR_NON_ETEN, ABROGE_DIFF in force; VIGUEUR_DIFF not yet; MODIFIE, ABROGE, PERIME no longer; DENONCE may still apply (list: `etat` field).\n- An empty result does not mean the law is silent: call `fr_coverage` and tell the user what is missing.\n\n## Errors\nA failed call returns isError with a text that starts with a code:\n- `[invalid_arg]` an argument is missing or malformed: fix it as the message says.\n- `[not_found]` nothing exists for that id: search again.\n- `[rate_limited]` PISTE quota reached: wait the delay given, then retry.\n- `[upstream_error]` Légifrance/PISTE failure: retry if the message asks, else report it.\n- `[config_error]` credentials or settings are missing or rejected: ask the user to fix the configuration.\n- `[audit_error]` the local audit log could not be written, so the result was withheld: tell the user."
+    "chars": 3992,
+    "sha256": "d91d622562fe6859222c416831d2ad1f85d824316ac1ba06abfcc4b2b3f4a2e1",
+    "text": "French law from Légifrance through the official PISTE API (read-only): consolidated laws and decrees (LODA), codes (CODE), Cour de cassation and courts of appeal (JURI), Conseil constitutionnel (CONSTIT), Conseil d'État and administrative courts (CETAT), CNIL deliberations (CNIL), collective labour agreements (KALI) and company agreements (ACCO). Use them for any question on French law or case law.\n\n## Workflow\n1. Find: `fr_search` searches one fond, paged with `page` and `has_more`; `fr_search_all` returns a few hits from several fonds. `fr_resolve` turns a free-text citation (code article, law number, ECLI, case number) into Legifrance ids.\n2. Read by id prefix: LEGITEXT -> `fr_get_act` (metadata and table of contents); LEGIARTI or KALIARTI -> `fr_get_text`; JURITEXT, CONSTEXT or CETATEXT -> `fr_get_decision`; CNILTEXT -> `fr_get_deliberation`; KALITEXT -> `fr_get_convention`; ACCOTEXT -> `fr_get_company_agreement` (metadata only: the full text is a .docx on Légifrance).\n3. Check and navigate: `fr_verify_citations` checks every citation of a draft against the official record; `fr_get_related` lists what an article or a decision cites or is cited by; `fr_diff_article` compares two versions of an article.\n4. Limits: `fr_coverage` says what this server does not cover and whether it runs on the PISTE sandbox.\n5. Tax doctrine: `fr_search_bofip` then `fr_get_bofip` read BOFiP, the tax administration's reading of tax law in force today, not the law.\n6. Public guidance: `fr_search_service_public` then `fr_get_service_public` read Service-Public sheets (DILA): plain-language guidance, not the law; `legal_references` lists its texts.\n7. Court rulings: `fr_search_judilibre` then `fr_get_judilibre` read Judilibre, the Cour de cassation open data, with appeal and lower courts; never to assess a judge.\n\n## Long texts\n`fr_get_text`, `fr_get_decision` and `fr_get_deliberation` return a short summary by default. A summary is never the whole text: pass `detail=\"full\"` before quoting a threshold, amount or rate; while `next_offset` is present, call again with `offset` set to it. To reach the relevant part directly, pass `focus` with a few words: you get the best passages and their `offset`.\n\n## Hard rules\n- Cite every source with its `citation` and `source_url`; for case law add the `ecli` when present.\n- Never invent an id, an ECLI, an ELI or a citation: take each one from tool output. Many CAA and TA decisions have no ECLI.\n- ELI: none from the API for legislation. `source_url` is the stable Légifrance page, not an ELI; an `eli` field appears only when the API provides one.\n- Attribution: Source : Légifrance / DILA — Licence Ouverte 2.0. When you reuse the data, give this source and the consultation date (`consulted_on` in `fr_coverage`).\n- Versions default to today's date in Paris; to get the law in force on another day, pass `date` to `fr_get_act` (`version_date` in `fr_search`) as YYYY-MM-DD, then read the article ids of that version with `fr_get_text`. Texts are verbatim (table cells are joined with \" | \"): this server does not decide whether a provision applies to a case.\n- `etat`: VIGUEUR, VIGUEUR_ETEN, VIGUEUR_NON_ETEN, ABROGE_DIFF in force; VIGUEUR_DIFF not yet; MODIFIE, ABROGE, PERIME no longer; DENONCE may still apply (list: `etat` field).\n- An empty result does not mean the law is silent: call `fr_coverage` and tell the user what is missing.\n\n## Errors\nA failed call returns isError with a text that starts with a code:\n- `[invalid_arg]` an argument is missing or malformed: fix it as the message says.\n- `[not_found]` nothing exists for that id: search again.\n- `[rate_limited]` PISTE quota reached: wait the delay given, then retry.\n- `[upstream_error]` Légifrance/PISTE failure: retry if the message asks, else report it.\n- `[config_error]` credentials or settings are missing or rejected: ask the user to fix the configuration.\n- `[audit_error]` the local audit log could not be written, so the result was withheld: tell the user."
   },
   "lock_format": 1,
   "prompts": {
@@ -106,10 +106,10 @@
   },
   "server_version": "1.5.0",
   "sizes": {
-    "instructions_chars": 3937,
-    "tools_list_bytes": 49792
+    "instructions_chars": 3992,
+    "tools_list_bytes": 57244
   },
-  "surface_sha256": "736e77ab31bdf26c9a72db82ffbf1ffbadfb43808d59b2b5951385995bc1268a",
+  "surface_sha256": "d34a530f055d94bd1a2440bbd3b72b25a6b62e7f87f441d654b8a79fe7b4eb7d",
   "tools": {
     "fr_coverage": {
       "descriptor": {
@@ -1280,6 +1280,251 @@
       },
       "sha256": "aec67226ff56b018eeae067b74d4ea09d98f07ab721e059ca7b5c8fa2a161824"
     },
+    "fr_get_judilibre": {
+      "descriptor": {
+        "annotations": {
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": true,
+          "readOnlyHint": true,
+          "title": "Read a Judilibre decision"
+        },
+        "description": "Read one decision from Judilibre (Cour de cassation open data) by its id from fr_search_judilibre. Returns the court, seat, chamber or formation and date, which must be cited with the decision, then its text as published, progressively like fr_get_text; `part` reads only one part, for example motivations (the reasons) or dispositif (the ruling). Also lists the texts applied (visa, to check with fr_resolve), related decisions with their ids, and the decision under appeal. Decisions are pseudonymised: never try to re-identify a party, and never use them to evaluate, compare or predict the practice of a judge or court clerk.",
+        "inputSchema": {
+          "additionalProperties": false,
+          "properties": {
+            "detail": {
+              "description": "\"summary\" (default): metadata and a short summary. \"full\": the text from offset, up to max_chars.",
+              "enum": [
+                "summary",
+                "full"
+              ],
+              "type": "string"
+            },
+            "focus": {
+              "description": "A few words: return the best matching passages instead of the summary or window.",
+              "maxLength": 500,
+              "minLength": 1,
+              "type": "string"
+            },
+            "id": {
+              "description": "A Judilibre decision id: 24 hexadecimal characters (from fr_search_judilibre).",
+              "type": "string"
+            },
+            "max_chars": {
+              "default": 4000,
+              "description": "Maximum characters of text returned (500 to 40000).",
+              "maximum": 40000,
+              "minimum": 500,
+              "type": "integer"
+            },
+            "offset": {
+              "default": 0,
+              "description": "Start position in characters for detail=\"full\"; pass the next_offset of the previous call.",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "part": {
+              "description": "Read only this part of the decision. Default: the whole decision.",
+              "enum": [
+                "introduction",
+                "expose",
+                "moyens",
+                "motivations",
+                "dispositif",
+                "annexes"
+              ],
+              "type": "string"
+            },
+            "passages": {
+              "default": 3,
+              "description": "Number of passages returned with focus.",
+              "maximum": 10,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "type": "object"
+        },
+        "name": "fr_get_judilibre",
+        "outputSchema": {
+          "properties": {
+            "attribution": {
+              "type": "string"
+            },
+            "case_law_note": {
+              "description": "Terms of reuse of these decisions.",
+              "type": "string"
+            },
+            "chamber": {
+              "type": "string"
+            },
+            "citation": {
+              "type": "string"
+            },
+            "contested": {
+              "description": "The decision under appeal.",
+              "properties": {
+                "chamber": {
+                  "type": "string"
+                },
+                "court": {
+                  "type": "string"
+                },
+                "date": {
+                  "type": "string"
+                },
+                "solution": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "court"
+              ],
+              "type": "object"
+            },
+            "court": {
+              "type": "string"
+            },
+            "date": {
+              "type": "string"
+            },
+            "ecli": {
+              "type": "string"
+            },
+            "formation": {
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "next_offset": {
+              "description": "Pass as offset to read the next window.",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "note": {
+              "type": "string"
+            },
+            "number": {
+              "type": "string"
+            },
+            "passages": {
+              "items": {
+                "properties": {
+                  "offset": {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "score": {
+                    "description": "BM25 relevance, only comparable between the passages of this answer.",
+                    "type": "number"
+                  },
+                  "text": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "offset",
+                  "text",
+                  "score"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "publication": {
+              "type": "string"
+            },
+            "related": {
+              "description": "Related decisions; id is read with fr_get_judilibre, legifrance_id with fr_get_decision.",
+              "items": {
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "legifrance_id": {
+                    "type": "string"
+                  },
+                  "title": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "title"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "solution": {
+              "type": "string"
+            },
+            "summary": {
+              "type": "string"
+            },
+            "summary_source": {
+              "enum": [
+                "official",
+                "dispositif",
+                "lead"
+              ],
+              "type": "string"
+            },
+            "summary_truncated": {
+              "description": "True when the summary itself is cut short or is only the opening of the text. Absent for an official summary or operative part that is given whole (it may still cover only part of the text).",
+              "type": "boolean"
+            },
+            "text": {
+              "type": "string"
+            },
+            "text_length": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "themes": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "updated": {
+              "type": "string"
+            },
+            "visa": {
+              "description": "Texts applied by the decision; check them with fr_resolve.",
+              "items": {
+                "properties": {
+                  "title": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "title"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "id",
+            "court",
+            "date",
+            "citation",
+            "attribution",
+            "case_law_note",
+            "text_length"
+          ],
+          "type": "object"
+        },
+        "title": "Read a Judilibre decision"
+      },
+      "sha256": "c1ece99cb570e5bc39942ecbd3e0ccfa9e0a051a337b4f97419abff98a723368"
+    },
     "fr_get_related": {
       "descriptor": {
         "annotations": {
@@ -2442,6 +2687,209 @@
       },
       "sha256": "5866611fe5ebc09d370846fed74e53df63427900053e82aeca6756edcea15cda"
     },
+    "fr_search_judilibre": {
+      "descriptor": {
+        "annotations": {
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": true,
+          "readOnlyHint": true,
+          "title": "Search Judilibre court decisions"
+        },
+        "description": "Search Judilibre, the open data of French judicial court decisions published by the Cour de cassation: the Cour de cassation itself, but also courts of appeal, judicial and commercial courts and labour courts, most of which are not on Légifrance. `courts` defaults to all of them; `part` limits the search to one part of the decision, for example the reasons (motivations), which is slower. Returns ids to read with fr_get_judilibre, with court, seat, chamber and date, never the full text. Decisions are pseudonymised; French law forbids using them to evaluate, compare or predict the practice of a judge or court clerk.",
+        "inputSchema": {
+          "additionalProperties": false,
+          "properties": {
+            "courts": {
+              "default": [
+                "cc",
+                "ca",
+                "tj",
+                "tcom",
+                "cph"
+              ],
+              "description": "Courts: cc (Cour de cassation), ca (courts of appeal), tj (judicial courts), tcom (commercial courts), cph (labour courts). Default: all five.",
+              "items": {
+                "enum": [
+                  "cc",
+                  "ca",
+                  "tj",
+                  "tcom",
+                  "cph"
+                ],
+                "type": "string"
+              },
+              "maxItems": 5,
+              "minItems": 1,
+              "type": "array",
+              "uniqueItems": true
+            },
+            "date_from": {
+              "description": "Earliest decision date YYYY-MM-DD.",
+              "format": "date",
+              "type": "string"
+            },
+            "date_to": {
+              "description": "Latest decision date YYYY-MM-DD.",
+              "format": "date",
+              "type": "string"
+            },
+            "match": {
+              "default": "all",
+              "description": "\"all\": all words (default); \"any\": any word; \"exact\": exact phrase.",
+              "enum": [
+                "any",
+                "all",
+                "exact"
+              ],
+              "type": "string"
+            },
+            "page": {
+              "default": 1,
+              "description": "Page number, from 1; page x page_size at most 10000.",
+              "minimum": 1,
+              "type": "integer"
+            },
+            "page_size": {
+              "default": 10,
+              "description": "Hits per page (1..50).",
+              "maximum": 50,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "part": {
+              "description": "Search only this part of the decisions (slower, especially motivations). Default: the whole text.",
+              "enum": [
+                "motivations",
+                "dispositif",
+                "expose",
+                "moyens",
+                "summary",
+                "visa"
+              ],
+              "type": "string"
+            },
+            "query": {
+              "description": "A few plain words, matched in the decisions (Judilibre search engine).",
+              "maxLength": 450,
+              "minLength": 1,
+              "type": "string"
+            },
+            "sort": {
+              "default": "relevance",
+              "description": "\"relevance\" (default) or \"date\" (newest first).",
+              "enum": [
+                "relevance",
+                "date"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "query"
+          ],
+          "type": "object"
+        },
+        "name": "fr_search_judilibre",
+        "outputSchema": {
+          "properties": {
+            "attribution": {
+              "type": "string"
+            },
+            "case_law_note": {
+              "description": "Terms of reuse of these decisions.",
+              "type": "string"
+            },
+            "consulted_on": {
+              "type": "string"
+            },
+            "has_more": {
+              "description": "True if the next page exists and is reachable.",
+              "type": "boolean"
+            },
+            "hits": {
+              "items": {
+                "properties": {
+                  "chamber": {
+                    "type": "string"
+                  },
+                  "citation": {
+                    "type": "string"
+                  },
+                  "court": {
+                    "type": "string"
+                  },
+                  "date": {
+                    "type": "string"
+                  },
+                  "ecli": {
+                    "type": "string"
+                  },
+                  "excerpt": {
+                    "type": "string"
+                  },
+                  "formation": {
+                    "type": "string"
+                  },
+                  "id": {
+                    "type": "string"
+                  },
+                  "number": {
+                    "type": "string"
+                  },
+                  "publication": {
+                    "type": "string"
+                  },
+                  "solution": {
+                    "type": "string"
+                  },
+                  "summary": {
+                    "type": "string"
+                  },
+                  "themes": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "id",
+                  "court",
+                  "date",
+                  "citation"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "note": {
+              "type": "string"
+            },
+            "page": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "total": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "total",
+            "page",
+            "has_more",
+            "hits",
+            "attribution",
+            "consulted_on",
+            "case_law_note"
+          ],
+          "type": "object"
+        },
+        "title": "Search Judilibre court decisions"
+      },
+      "sha256": "5a7eaeaa41d8617e732c83730e00b028b94e504a9efa51fa0f2bf94229e5e98f"
+    },
     "fr_search_service_public": {
       "descriptor": {
         "annotations": {
@@ -2754,5 +3202,5 @@
       "sha256": "be51a6e4cd67f1f91289213f993c62a87c1f1023384e59e9a96922d94073f260"
     }
   },
-  "toolset_sha256": "b5e39fe40432e7efc36b9739e43f47ae0ed0744fec92c66443fa310ba2513af4"
+  "toolset_sha256": "6a07e158d8097b3a6012a189838228f4c1ed84b4a1edd063e4b81f7352048d72"
 }

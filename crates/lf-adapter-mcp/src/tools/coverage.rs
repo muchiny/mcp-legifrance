@@ -6,7 +6,7 @@
 
 use lf_application::{
     input::CoverageInput,
-    ports::{AuditLog, Clock, LegalCorpus, PublicGuidance, TaxDoctrine},
+    ports::{AuditLog, Clock, JudicialOpenData, LegalCorpus, PublicGuidance, TaxDoctrine},
 };
 use rmcp::{Json, model::JsonObject};
 use rmcp_macros::{tool, tool_router};
@@ -25,8 +25,8 @@ use crate::{
 pub(crate) const DESCRIPTION: &str = "Describe what this server covers, how it is sourced and what it does NOT cover. Call it before telling a user that the law \"does not contain\" something, and whenever a search comes back empty: the gap may be in this server, not in the law. Each gap comes with a fallback. It also reports the PISTE environment (sandbox or production), whether the configuration is complete, the data source and licence with today's consultation date, and the note on ELI identifiers. No arguments, no network call.";
 
 #[tool_router(router = coverage_router, vis = "pub(crate)")]
-impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine, G: PublicGuidance>
-    LegifranceServer<C, A, K, D, G>
+impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine, G: PublicGuidance, J: JudicialOpenData>
+    LegifranceServer<C, A, K, D, G, J>
 {
     #[tool(
         name = "fr_coverage",
@@ -113,7 +113,7 @@ mod tests {
             assert_eq!(structured["status"], "ok");
             assert_eq!(structured["environment"], "sandbox");
             assert_eq!(structured["consulted_on"], "2026-10-29");
-            assert_eq!(fixture.corpus.calls(), 0);
+            assert_eq!((fixture.corpus.calls(), fixture.case_law.calls()), (0, 0));
             let text = result.content[0].as_text().unwrap().text.clone();
             assert_eq!(serde_json::from_str::<Value>(&text).unwrap(), structured);
             let records = fixture.audit.records();
@@ -122,8 +122,9 @@ mod tests {
             assert_eq!(records[0].status, AuditStatus::Ok);
             assert_eq!(records[0].input.as_str(), "{}");
             // Bac à sable avec identifiants : neuf lacunes du catalogue, FR-101, FR-106 (BOFiP,
-            // source active) et FR-108 (Service-Public, source active, surface v0.3).
-            assert_eq!(records[0].output_count_or_size, 12);
+            // source active), FR-108 (Service-Public, source active, surface v0.3) et FR-110
+            // (Judilibre, source active, surface v0.3).
+            assert_eq!(records[0].output_count_or_size, 13);
         }
 
         #[tokio::test]

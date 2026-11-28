@@ -1,11 +1,11 @@
-//! Le serveur MCP : `LegifranceServer` assemble les 15 routeurs d'outils et délègue les
+//! Le serveur MCP : `LegifranceServer` assemble les 19 routeurs d'outils et délègue les
 //! resources, les prompts et les complétions (05 §3, §8).
 //!
-//! Le serveur est générique sur les cinq ports de la façade (`C`, `A`, `K`, `D`, la source de
-//! doctrine fiscale, et `G`, celle des fiches de Service-Public, toutes deux coupées par défaut),
-//! comme `LegalService`. Les macros rmcp n'ajoutent aucune borne : `LegalCorpus`, `AuditLog`,
-//! `Clock`, `TaxDoctrine` et `PublicGuidance` portent déjà `Send + Sync + 'static`, ce qu'exige
-//! `ToolRouter<Self>` (spike 0A, V-15).
+//! Le serveur est générique sur les six ports de la façade (`C`, `A`, `K`, `D`, la source de
+//! doctrine fiscale, `G`, celle des fiches de Service-Public, et `J`, celle de Judilibre, toutes
+//! trois coupées par défaut), comme `LegalService`. Les macros rmcp n'ajoutent aucune borne :
+//! `LegalCorpus`, `AuditLog`, `Clock`, `TaxDoctrine`, `PublicGuidance` et `JudicialOpenData`
+//! portent déjà `Send + Sync + 'static`, ce qu'exige `ToolRouter<Self>` (spike 0A, V-15).
 //!
 //! # Protocole
 //!
@@ -37,7 +37,10 @@ use std::{
 
 use lf_application::{
     output::complete::CompleteOutput,
-    ports::{AuditLog, Clock, LegalCorpus, NoDoctrine, NoGuidance, PublicGuidance, TaxDoctrine},
+    ports::{
+        AuditLog, Clock, JudicialOpenData, LegalCorpus, NoCaseLaw, NoDoctrine, NoGuidance,
+        PublicGuidance, TaxDoctrine,
+    },
     service::LegalService,
 };
 use rmcp::{
@@ -61,7 +64,7 @@ use crate::{
 };
 
 /// Nombre d'outils du catalogue (05 §3) : un routeur par fichier de `tools/`.
-const ROUTERS: usize = 17;
+const ROUTERS: usize = 19;
 
 /// Nom du serveur dans `serverInfo` (05 §2.2).
 const SERVER_NAME: &str = "mcp-legifrance";
@@ -82,18 +85,19 @@ const INTERNAL_ERROR_MESSAGE: &str = "internal error";
 
 /// Serveur MCP de Légifrance : les outils, puis les resources, prompts et complétions.
 ///
-/// `D` est la source de doctrine fiscale de la façade (BOFiP, ADR-0028) et `G` celle des fiches de
-/// Service-Public (ADR-0033) ; leurs défauts, [`NoDoctrine`] et [`NoGuidance`], sont ceux de
-/// `LegalService::new`.
+/// `D` est la source de doctrine fiscale de la façade (BOFiP, ADR-0028), `G` celle des fiches de
+/// Service-Public (ADR-0033) et `J` celle des décisions de Judilibre (ADR-0035) ; leurs défauts,
+/// [`NoDoctrine`], [`NoGuidance`] et [`NoCaseLaw`], sont ceux de `LegalService::new`.
 pub struct LegifranceServer<
     C: LegalCorpus,
     A: AuditLog,
     K: Clock,
     D: TaxDoctrine = NoDoctrine,
     G: PublicGuidance = NoGuidance,
+    J: JudicialOpenData = NoCaseLaw,
 > {
     /// La façade des cas d'usage, lue par les outils (`tools/*.rs`).
-    pub(crate) service: Arc<LegalService<C, A, K, D, G>>,
+    pub(crate) service: Arc<LegalService<C, A, K, D, G, J>>,
     /// Identité, capacités et instructions, calculées une fois : rmcp appelle `get_info` à chaque
     /// `initialize`, `server/discover` et `subscriptions/listen`.
     info: ServerConfig,
@@ -101,13 +105,13 @@ pub struct LegifranceServer<
     tool_router: ToolRouter<Self>,
 }
 
-impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine, G: PublicGuidance>
-    LegifranceServer<C, A, K, D, G>
+impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine, G: PublicGuidance, J: JudicialOpenData>
+    LegifranceServer<C, A, K, D, G, J>
 {
-    /// Serveur dont le routeur additionne les dix-sept routeurs d'outils de `tools/`, annonçant la
+    /// Serveur dont le routeur additionne les dix-neuf routeurs d'outils de `tools/`, annonçant la
     /// surface [`SURFACE`].
     #[must_use]
-    pub fn new(service: Arc<LegalService<C, A, K, D, G>>) -> Self {
+    pub fn new(service: Arc<LegalService<C, A, K, D, G, J>>) -> Self {
         Self::with_surface(service, SURFACE)
     }
 
@@ -117,7 +121,7 @@ impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine, G: PublicGuidance>
         reason = "`+` fusionne deux `ToolRouter` (opérateur du SDK), ce n'est pas de l'arithmétique d'entiers"
     )]
     pub(crate) fn with_surface(
-        service: Arc<LegalService<C, A, K, D, G>>,
+        service: Arc<LegalService<C, A, K, D, G, J>>,
         surface: Surface,
     ) -> Self {
         let tool_router =
@@ -125,7 +129,7 @@ impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine, G: PublicGuidance>
         Self { service, info: server_config(surface), tool_router }
     }
 
-    /// Les routeurs des 17 outils, dans l'ordre du catalogue (05 §3). La longueur du tableau est
+    /// Les routeurs des 19 outils, dans l'ordre du catalogue (05 §3). La longueur du tableau est
     /// vérifiée à la compilation : retirer ou oublier un routeur ne compile pas.
     fn routers() -> [ToolRouter<Self>; ROUTERS] {
         [
@@ -146,6 +150,8 @@ impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine, G: PublicGuidance>
             Self::get_bofip_router(),
             Self::search_service_public_router(),
             Self::get_service_public_router(),
+            Self::search_judilibre_router(),
+            Self::get_judilibre_router(),
         ]
     }
 
@@ -157,11 +163,11 @@ impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine, G: PublicGuidance>
     }
 }
 
-/// Clone manuel, car `derive` exigerait `C: Clone`, `A: Clone`, `K: Clone`, `D: Clone` et `G: Clone`
+/// Clone manuel, car `derive` exigerait `C: Clone`, `A: Clone`, `K: Clone`, `D: Clone`, `G: Clone` et `J: Clone`
 /// alors que la façade est partagée par `Arc`. Il sert la fabrique sans état du transport HTTP (M8), appelée à
 /// chaque requête : on clone un prototype dont le routeur est construit une fois (02 §3.6, 05 §10.1).
-impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine, G: PublicGuidance> Clone
-    for LegifranceServer<C, A, K, D, G>
+impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine, G: PublicGuidance, J: JudicialOpenData>
+    Clone for LegifranceServer<C, A, K, D, G, J>
 {
     fn clone(&self) -> Self {
         Self {
@@ -276,8 +282,8 @@ impl<F: Future> Future for CatchUnwind<F> {
     reason = "méthodes async générées par #[tool_handler] et délégations sans .await"
 )]
 #[tool_handler(router = self.tool_router)]
-impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine, G: PublicGuidance> ServerHandler
-    for LegifranceServer<C, A, K, D, G>
+impl<C: LegalCorpus, A: AuditLog, K: Clock, D: TaxDoctrine, G: PublicGuidance, J: JudicialOpenData>
+    ServerHandler for LegifranceServer<C, A, K, D, G, J>
 {
     fn get_info(&self) -> ServerConfig {
         self.info.clone()
@@ -803,7 +809,9 @@ mod tests {
             text::LongText,
         };
 
-        use crate::testing::{SharedAudit, SharedCorpus, SharedDoctrine, SharedGuidance};
+        use crate::testing::{
+            SharedAudit, SharedCaseLaw, SharedCorpus, SharedDoctrine, SharedGuidance,
+        };
 
         const ARTICLE_URI: &str = "legifrance://article/LEGIARTI000006419288";
         const DECISION_URI: &str = "legifrance://decision/JURITEXT000037999394";
@@ -828,7 +836,8 @@ mod tests {
                 fixture.settings.clone(),
             )
             .with_doctrine(SharedDoctrine(Arc::clone(&fixture.doctrine)))
-            .with_guidance(SharedGuidance(Arc::clone(&fixture.guidance)));
+            .with_guidance(SharedGuidance(Arc::clone(&fixture.guidance)))
+            .with_case_law(SharedCaseLaw(Arc::clone(&fixture.case_law)));
             LegifranceServer::with_surface(Arc::new(service), Surface::V03)
         }
 

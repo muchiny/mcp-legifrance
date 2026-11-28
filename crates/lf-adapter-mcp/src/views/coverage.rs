@@ -2,11 +2,13 @@
 //! de sa configuration.
 //!
 //! Le domaine calcule le statut, les familles (une par fond servi) et les lacunes (catalogue
-//! FR-001 à FR-009, puis FR-101 à FR-109) ; la vue y ajoute ce qui est de présentation : le libellé
+//! FR-001 à FR-009, puis FR-101 à FR-111) ; la vue y ajoute ce qui est de présentation : le libellé
 //! et les outils de chaque famille (le domaine ne nomme aucun outil), les outils transverses selon
 //! la surface annoncée, la source, l'attribution des données et la date de consultation (Q15).
-//! Elle écarte aussi les lacunes de Service-Public (FR-108, FR-109) hors de la v0.3, la seule
-//! surface qui sert ses outils : les réponses v0.1 et v0.2 restent celles d'avant le jalon MS.
+//! Elle écarte aussi les lacunes de Service-Public (FR-108, FR-109) et de Judilibre (FR-110,
+//! FR-111) hors de la v0.3, la seule surface qui sert leurs outils, et n'y substitue qu'à la v0.3
+//! la FR-005 qui renvoie à `fr_search_judilibre` : les réponses v0.1 et v0.2 restent celles d'avant
+//! les jalons MS et MJ.
 //! Pas de commentaire de doc sur les champs : le schéma de sortie n'en porte aucun.
 
 use lf_application::{
@@ -14,7 +16,10 @@ use lf_application::{
 };
 use lf_domain::{
     contract::ELI_NOTE,
-    coverage::{CoverageFamily, CoverageGap, CoverageStatus, DOCTRINE_FAMILY, GUIDANCE_FAMILY},
+    coverage::{
+        CoverageFamily, CoverageGap, CoverageStatus, DOCTRINE_FAMILY, GUIDANCE_FAMILY,
+        JUDILIBRE_FAMILY, judilibre_fr005,
+    },
     fond::Fond,
 };
 use schemars::JsonSchema;
@@ -218,23 +223,48 @@ fn guidance_family() -> FamilyView {
     }
 }
 
-/// Nom de famille d'une lacune : un fond de Légifrance, la famille du BOFiP ou celle de
-/// Service-Public ; `None` pour une lacune qui ne désigne aucune famille.
+/// Libellé de la famille de Judilibre : la source et les juridictions qu'elle sert (05 §5.8).
+const JUDILIBRE_LABEL: &str = "Court decisions: Judilibre, open data of the Cour de cassation \
+     (Cour de cassation, courts of appeal, judicial and commercial courts, labour courts)";
+
+/// Famille de Judilibre, rendue comme celles du BOFiP et de Service-Public : à la surface qui
+/// enregistre ses deux outils, que la source soit active ou coupée, après `SERVICE_PUBLIC` ;
+/// l'état de la source se lit dans les lacunes (FR-110, FR-111).
+fn judilibre_family() -> FamilyView {
+    FamilyView {
+        fond: JUDILIBRE_FAMILY.to_owned(),
+        label: JUDILIBRE_LABEL.to_owned(),
+        tools: [ToolName::FR_SEARCH_JUDILIBRE, ToolName::FR_GET_JUDILIBRE]
+            .map(|tool| tool.as_str().to_owned())
+            .into(),
+    }
+}
+
+/// Nom de famille d'une lacune : un fond de Légifrance, ou la famille du BOFiP, de Service-Public
+/// ou de Judilibre ; `None` pour une lacune qui ne désigne aucune famille.
 fn gap_family(family: &str) -> Option<String> {
-    if family == DOCTRINE_FAMILY || family == GUIDANCE_FAMILY {
+    if [DOCTRINE_FAMILY, GUIDANCE_FAMILY, JUDILIBRE_FAMILY].contains(&family) {
         return Some(family.to_owned());
     }
     Fond::parse(family).ok().map(|fond| fond.name().to_owned())
 }
 
-/// Vrai si la lacune est rendue à `surface` : celles de Service-Public ne le sont qu'à la v0.3
-/// (05 §5.8, G1 bis), les autres toujours.
+/// Vrai si la lacune est rendue à `surface` : celles de Service-Public et de Judilibre ne le
+/// sont qu'à la v0.3 (05 §5.8, G1 bis), les autres toujours.
 fn gap_shown(gap: &CoverageGap, surface: Surface) -> bool {
-    surface == Surface::V03 || gap.family != GUIDANCE_FAMILY
+    surface == Surface::V03 || (gap.family != GUIDANCE_FAMILY && gap.family != JUDILIBRE_FAMILY)
 }
 
-/// Lacune rendue : `fond` n'est présent que si la lacune désigne une famille.
-fn gap_view(gap: &CoverageGap) -> GapView {
+/// Lacune rendue : `fond` n'est présent que si la lacune désigne une famille. À la v0.3, qui sert
+/// les outils de Judilibre, FR-005 est remplacée par [`judilibre_fr005`].
+fn gap_view(gap: &CoverageGap, surface: Surface) -> GapView {
+    let fr005;
+    let gap = if surface == Surface::V03 && gap.id == "FR-005" {
+        fr005 = judilibre_fr005();
+        &fr005
+    } else {
+        gap
+    };
     GapView {
         id: gap.id.clone(),
         fond: gap_family(&gap.family),
@@ -268,12 +298,13 @@ impl CoverageView {
                 .filter_map(|family| family_view(family, surface))
                 .chain((surface == Surface::V03).then(doctrine_family))
                 .chain((surface == Surface::V03).then(guidance_family))
+                .chain((surface == Surface::V03).then(judilibre_family))
                 .collect(),
             gaps: coverage
                 .known_gaps()
                 .iter()
                 .filter(|gap| gap_shown(gap, surface))
-                .map(gap_view)
+                .map(|gap| gap_view(gap, surface))
                 .collect(),
         }
     }
@@ -291,7 +322,9 @@ mod tests {
 
     use lf_application::output::coverage::CoverageConfiguration;
     use lf_domain::{
-        coverage::{ConfigFacts, Coverage, DoctrineSource, GuidanceSource, coverage},
+        coverage::{
+            ConfigFacts, Coverage, DoctrineSource, GuidanceSource, JudilibreSource, coverage,
+        },
         date::CivilDate,
     };
     use pretty_assertions::assert_eq;
@@ -316,6 +349,7 @@ mod tests {
             // défaut du binaire.
             doctrine: DoctrineSource::Active,
             guidance: GuidanceSource::Active,
+            judilibre: JudilibreSource::NotServed,
         };
         CoverageOutput {
             coverage: coverage(environment, &facts, &Fond::ALL),
@@ -388,9 +422,10 @@ mod tests {
             has_problems: false,
             local_snapshot: true,
             // Un instantané local coupe les sources du BOFiP et de Service-Public, sauf
-            // `LF_BOFIP=on` et `LF_SERVICE_PUBLIC=on`.
+            // `LF_BOFIP=on`, `LF_SERVICE_PUBLIC=on` et `LF_JUDILIBRE=on`.
             doctrine: DoctrineSource::Off,
             guidance: GuidanceSource::Off,
+            judilibre: JudilibreSource::Off,
         };
         out.coverage = coverage(PisteEnvironment::Production, &facts, &[Fond::Loda, Fond::Code]);
         out.configuration.local_snapshot = true;
@@ -409,18 +444,18 @@ mod tests {
             .iter()
             .map(|gap| gap["id"].as_str().unwrap())
             .collect();
-        // La lacune de l'instantané, puis celles du BOFiP et de Service-Public, coupés d'office
-        // par l'instantané.
-        assert_eq!(ids[ids.len() - 3..], ["FR-105", "FR-107", "FR-109"]);
+        // La lacune de l'instantané, puis celles du BOFiP, de Service-Public et de Judilibre,
+        // coupés d'office par l'instantané.
+        assert_eq!(ids[ids.len() - 4..], ["FR-105", "FR-107", "FR-109", "FR-111"]);
         let fonds: Vec<&str> = view["families"]
             .as_array()
             .unwrap()
             .iter()
             .map(|family| family["fond"].as_str().unwrap())
             .collect();
-        // Les familles du BOFiP et de Service-Public suivent leurs outils, enregistrés même quand
-        // la source est coupée (ce que fait un instantané local).
-        assert_eq!(fonds, ["LODA", "CODE", "BOFIP", "SERVICE_PUBLIC"]);
+        // Les familles du BOFiP, de Service-Public et de Judilibre suivent leurs outils,
+        // enregistrés même quand la source est coupée (ce que fait un instantané local).
+        assert_eq!(fonds, ["LODA", "CODE", "BOFIP", "SERVICE_PUBLIC", "JUDILIBRE"]);
         // Le schéma de sortie n'a pas changé : le drapeau n'est pas un champ de la vue.
         assert!(view["configuration"].get("local_snapshot").is_none());
     }
@@ -514,9 +549,9 @@ mod tests {
             .iter()
             .map(|f| f["fond"].as_str().unwrap())
             .collect();
-        // Les familles du BOFiP et de Service-Public ne viennent pas du domaine : la vue les
-        // ajoute à la surface v0.3.
-        assert_eq!(fonds, ["KALI", "BOFIP", "SERVICE_PUBLIC"]);
+        // Les familles du BOFiP, de Service-Public et de Judilibre ne viennent pas du domaine : la
+        // vue les ajoute à la surface v0.3.
+        assert_eq!(fonds, ["KALI", "BOFIP", "SERVICE_PUBLIC", "JUDILIBRE"]);
     }
 
     #[test]
@@ -588,14 +623,25 @@ mod tests {
         );
         assert_eq!(gap_family("BOFIP"), Some("BOFIP".to_owned()));
         assert_eq!(gap_family("SERVICE_PUBLIC"), Some("SERVICE_PUBLIC".to_owned()));
+        assert_eq!(gap_family("JUDILIBRE"), Some("JUDILIBRE".to_owned()));
         assert_eq!(gap_family("JURI"), Some("JURI".to_owned()));
         assert_eq!(gap_family(""), None);
         assert_eq!(gap_family("bofip"), None);
         assert_eq!(gap_family("service_public"), None);
+        assert_eq!(gap_family("judilibre"), None);
     }
 
     /// Sortie du bac à sable dont les deux sources sont dans l'état `doctrine` et `guidance`.
     fn sources(doctrine: DoctrineSource, guidance: GuidanceSource) -> CoverageOutput {
+        with_judilibre(doctrine, guidance, JudilibreSource::NotServed)
+    }
+
+    /// Sortie du bac à sable dont les trois sources sont dans l'état donné.
+    fn with_judilibre(
+        doctrine: DoctrineSource,
+        guidance: GuidanceSource,
+        judilibre: JudilibreSource,
+    ) -> CoverageOutput {
         let mut out = output(PisteEnvironment::Sandbox, true, false, &[]);
         let facts = ConfigFacts {
             credentials_configured: true,
@@ -604,6 +650,7 @@ mod tests {
             local_snapshot: false,
             doctrine,
             guidance,
+            judilibre,
         };
         out.coverage = coverage(PisteEnvironment::Sandbox, &facts, &Fond::ALL);
         out
@@ -628,13 +675,13 @@ mod tests {
         });
         let view = sandbox_view(Surface::V03);
         let families = view["families"].as_array().unwrap();
-        assert_eq!(families.len(), 10);
+        assert_eq!(families.len(), 11);
         assert_eq!(families[8], family);
 
         let off = sources(DoctrineSource::Off, GuidanceSource::Active);
         let view = serde_json::to_value(CoverageView::new(off, Surface::V03)).unwrap();
         let families = view["families"].as_array().unwrap();
-        assert_eq!(families.len(), 10);
+        assert_eq!(families.len(), 11);
         assert_eq!(families[8], family);
         let ids: Vec<&str> = view["gaps"]
             .as_array()
@@ -645,9 +692,9 @@ mod tests {
         assert_eq!(ids[ids.len() - 2..], ["FR-107", "FR-108"]);
     }
 
-    /// La famille de Service-Public : rendue à la surface v0.3 seule, la dernière, après celle du
-    /// BOFiP, avec ses deux outils et un libellé qui dit les deux sites et la licence ; rendue de
-    /// la même façon quand la source est coupée.
+    /// La famille de Service-Public : rendue à la surface v0.3 seule, après celle du BOFiP, avec
+    /// ses deux outils et un libellé qui dit les deux sites et la licence ; rendue de la même façon
+    /// quand la source est coupée.
     #[test]
     fn service_public_family_is_always_rendered_at_v03() {
         for surface in [Surface::V01, Surface::V02] {
@@ -667,9 +714,98 @@ mod tests {
             let out = sources(DoctrineSource::Active, guidance);
             let view = serde_json::to_value(CoverageView::new(out, Surface::V03)).unwrap();
             let families = view["families"].as_array().unwrap();
-            assert_eq!(families.len(), 10, "{guidance:?}");
+            assert_eq!(families.len(), 11, "{guidance:?}");
             assert_eq!(families[9], family, "{guidance:?}");
         }
+    }
+
+    /// La famille de Judilibre : rendue à la surface v0.3 seule, la dernière, après celle de
+    /// Service-Public, avec ses deux outils et un libellé qui dit la source et ses juridictions ;
+    /// rendue de la même façon quelle que soit l'état de la source (D-34).
+    #[test]
+    fn judilibre_family_is_always_rendered_at_v03() {
+        let family = json!({
+            "fond": "JUDILIBRE",
+            "label": "Court decisions: Judilibre, open data of the Cour de cassation (Cour de cassation, courts of appeal, judicial and commercial courts, labour courts)",
+            "tools": ["fr_search_judilibre", "fr_get_judilibre"]
+        });
+        for judilibre in [JudilibreSource::Active, JudilibreSource::Off, JudilibreSource::NotServed]
+        {
+            let out = || with_judilibre(DoctrineSource::Active, GuidanceSource::Active, judilibre);
+            for surface in [Surface::V01, Surface::V02] {
+                let view = serde_json::to_value(CoverageView::new(out(), surface)).unwrap();
+                let families = view["families"].as_array().unwrap();
+                assert!(families.iter().all(|f| f["fond"] != "JUDILIBRE"), "{surface:?}");
+            }
+            let view = serde_json::to_value(CoverageView::new(out(), Surface::V03)).unwrap();
+            let families = view["families"].as_array().unwrap();
+            assert_eq!(families.len(), 11, "{judilibre:?}");
+            assert_eq!(families[10], family, "{judilibre:?}");
+        }
+    }
+
+    /// Les lacunes de Judilibre suivent l'état de la source, et FR-005 renvoie à
+    /// `fr_search_judilibre`, à la v0.3 seulement : les réponses v0.1 et v0.2 sont celles d'avant
+    /// le jalon MJ, à l'octet (G1 bis), quel que soit l'état.
+    #[test]
+    fn judilibre_gaps_and_fr005_only_at_v03() {
+        let rows = [
+            (JudilibreSource::Active, Some("FR-110")),
+            (JudilibreSource::Off, Some("FR-111")),
+            (JudilibreSource::NotServed, None),
+        ];
+        let catalogue = json!({
+            "id": "FR-005",
+            "fond": "JURI",
+            "missing": "Only a selection of courts of appeal and almost no first-instance decisions are on Légifrance; Judilibre is not integrated.",
+            "fallback": "Search Judilibre (Cour de cassation open data) for other judicial decisions."
+        });
+        let served = json!({
+            "id": "FR-005",
+            "fond": "JURI",
+            "missing": "Only a selection of courts of appeal and almost no first-instance decisions are on Légifrance (JURI).",
+            "fallback": "Search them with fr_search_judilibre (Judilibre, open data of the Cour de cassation)."
+        });
+        for (judilibre, expected) in rows {
+            for surface in [Surface::V01, Surface::V02, Surface::V03] {
+                let out = with_judilibre(DoctrineSource::Active, GuidanceSource::Active, judilibre);
+                let view = serde_json::to_value(CoverageView::new(out, surface)).unwrap();
+                let gaps = view["gaps"].as_array().unwrap();
+                let found: Vec<&str> = gaps
+                    .iter()
+                    .filter(|gap| gap.get("fond") == Some(&json!("JUDILIBRE")))
+                    .map(|gap| gap["id"].as_str().unwrap())
+                    .collect();
+                let wanted: Vec<&str> =
+                    expected.filter(|_| surface == Surface::V03).into_iter().collect();
+                assert_eq!(found, wanted, "{judilibre:?} {surface:?}");
+                let fr005 = gaps.iter().find(|gap| gap["id"] == "FR-005").unwrap();
+                let text = if surface == Surface::V03 { &served } else { &catalogue };
+                assert_eq!(fr005, text, "{judilibre:?} {surface:?}");
+                // Sans effet sur le statut.
+                assert_eq!(view["status"], "ok", "{judilibre:?} {surface:?}");
+            }
+            // À la v0.1 et à la v0.2, la réponse est la même, à l'octet, que la source soit
+            // servie ou non.
+            for surface in [Surface::V01, Surface::V02] {
+                let shown = |source| {
+                    let out =
+                        with_judilibre(DoctrineSource::Active, GuidanceSource::Active, source);
+                    serde_json::to_string(&CoverageView::new(out, surface)).unwrap()
+                };
+                assert_eq!(shown(judilibre), shown(JudilibreSource::NotServed), "{surface:?}");
+            }
+        }
+        let last =
+            with_judilibre(DoctrineSource::Active, GuidanceSource::Active, JudilibreSource::Active);
+        let view = serde_json::to_value(CoverageView::new(last, Surface::V03)).unwrap();
+        let ids: Vec<&str> = view["gaps"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|gap| gap["id"].as_str().unwrap())
+            .collect();
+        assert_eq!(ids[ids.len() - 2..], ["FR-108", "FR-110"]);
     }
 
     /// Les lacunes de Service-Public suivent l'état de la source, à la v0.3 seulement : les
@@ -801,6 +937,8 @@ mod tests {
             ToolName::FR_GET_BOFIP,
             ToolName::FR_SEARCH_SERVICE_PUBLIC,
             ToolName::FR_GET_SERVICE_PUBLIC,
+            ToolName::FR_SEARCH_JUDILIBRE,
+            ToolName::FR_GET_JUDILIBRE,
         ]
         .map(ToolName::as_str);
         let mut tools: BTreeSet<&str> = v01.into_iter().collect();
@@ -821,7 +959,7 @@ mod tests {
             let view = sandbox_view(surface);
             assert_eq!(named_tools(&view), registered(surface), "{surface:?}");
         }
-        // Le binaire annonce `SURFACE`, la surface complète : les dix-sept outils de `ToolName::ALL`.
+        // Le binaire annonce `SURFACE`, la surface complète : les dix-neuf outils de `ToolName::ALL`.
         let announced = named_tools(
             &serde_json::to_value(CoverageView::from(output(
                 PisteEnvironment::Sandbox,

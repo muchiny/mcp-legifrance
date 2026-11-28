@@ -1,0 +1,99 @@
+---
+source: crates/lf-adapter-mcp/src/views/search_judilibre.rs
+expression: schema
+---
+{
+  "properties": {
+    "attribution": {
+      "type": "string"
+    },
+    "case_law_note": {
+      "description": "Terms of reuse of these decisions.",
+      "type": "string"
+    },
+    "consulted_on": {
+      "type": "string"
+    },
+    "has_more": {
+      "description": "True if the next page exists and is reachable.",
+      "type": "boolean"
+    },
+    "hits": {
+      "items": {
+        "properties": {
+          "chamber": {
+            "type": "string"
+          },
+          "citation": {
+            "type": "string"
+          },
+          "court": {
+            "type": "string"
+          },
+          "date": {
+            "type": "string"
+          },
+          "ecli": {
+            "type": "string"
+          },
+          "excerpt": {
+            "type": "string"
+          },
+          "formation": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "number": {
+            "type": "string"
+          },
+          "publication": {
+            "type": "string"
+          },
+          "solution": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "themes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "court",
+          "date",
+          "citation"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "note": {
+      "type": "string"
+    },
+    "page": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "total": {
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "total",
+    "page",
+    "has_more",
+    "hits",
+    "attribution",
+    "consulted_on",
+    "case_law_note"
+  ],
+  "type": "object"
+}
