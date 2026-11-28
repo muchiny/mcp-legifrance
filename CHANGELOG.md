@@ -15,7 +15,11 @@ Rubriques (`docs/plan/06-qualite.md` §13.3) : `Added`, `Changed`, `Deprecated`,
 
 ## [Unreleased]
 
-Jalon MJ (ADR-0035, AM-103) : les décisions de justice de Judilibre, la base open data de la Cour de cassation (Cour de cassation, cours d'appel, tribunaux judiciaires, tribunaux de commerce, conseils de prud'hommes), lues par PISTE avec la même application, le même jeton et le même débit que Légifrance. `lock-descriptors --compare v1.5.0` relève deux ajouts : la version suivante est une mineure (1.6.0 proposée).
+Rien depuis `1.6.0`.
+
+## [1.6.0] - 2026-11-28
+
+Jalon MJ (ADR-0035, AM-103 ; PR #116 et #117) : les décisions de justice de Judilibre, la base open data de la Cour de cassation (Cour de cassation, cours d'appel, tribunaux judiciaires, tribunaux de commerce, conseils de prud'hommes), lues par PISTE avec la même application, le même jeton et le même débit que Légifrance. `lock-descriptors --compare v1.5.0` relève deux ajouts : version mineure, comme le propose ADR-0035.
 
 ### Added
 
@@ -31,6 +35,7 @@ Jalon MJ (ADR-0035, AM-103) : les décisions de justice de Judilibre, la base op
 - `fr_coverage`, à la surface v0.3 seulement : famille `JUDILIBRE`, après `SERVICE_PUBLIC`, lacune FR-110 (source active) ou FR-111 (source coupée), et le texte de FR-005 renvoie à `fr_search_judilibre` pour les juges du fond. Les réponses v0.1 et v0.2 ne changent pas, à l'octet. La métrique d'audit de `fr_coverage`, qui compte toutes les lacunes du domaine quelle que soit la surface, en compte une de plus.
 - Instructions du serveur (v0.3) : une ligne 7 cite les deux outils ; les lignes 5 et 6 (BOFiP, Service-Public) sont raccourcies pour rester sous 4 000 caractères.
 - Le limiteur, le plafond de requêtes simultanées et le jeton de PISTE servent les deux API : `LF_PISTE_RPS`, `LF_PISTE_BURST` et `LF_PISTE_CONCURRENCY` comptent Légifrance et Judilibre ensemble.
+- Dépendances : `flate2` 1.1.11 et `toml` 1.2.1, sans changement visible ; `jsonschema` 0.61.2, pour les tests seulement.
 
 ### Tool surface
 
@@ -594,7 +599,8 @@ Verrou des descripteurs `tests/tools.lock.json` (format 1, version du serveur `0
 
 - Domaine seulement, visible par un client à partir de M4 : citation du Conseil constitutionnel sans « - objet » (P-035), plus de `eli_uri` (P-031, P-039), sentinelle de date omise (P-030).
 
-[Unreleased]: https://github.com/muchiny/mcp-legifrance/compare/v1.5.0...HEAD
+[Unreleased]: https://github.com/muchiny/mcp-legifrance/compare/v1.6.0...HEAD
+[1.6.0]: https://github.com/muchiny/mcp-legifrance/compare/v1.5.0...v1.6.0
 [1.5.0]: https://github.com/muchiny/mcp-legifrance/compare/v1.4.1...v1.5.0
 [1.4.1]: https://github.com/muchiny/mcp-legifrance/compare/v1.4.0...v1.4.1
 [1.4.0]: https://github.com/muchiny/mcp-legifrance/compare/v1.3.2...v1.4.0

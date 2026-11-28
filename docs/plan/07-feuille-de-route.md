@@ -74,7 +74,7 @@ Les questions Q1 à Q15 de 00 §13 portent chacune une proposition adoptée par 
 | Distribution (transverse) | binaires, signature, MCPB, OCI, registre MCP, `cargo install --git` | dès v0.1.0 | A, W, M, K, R, G | Q1 (avant publication immuable), Q5, Q13 | **V-173** (si certificat, Q5), **V-197**, **V-204** | 15 |
 | MB BOFiP | doctrine fiscale : port `TaxDoctrine`, `lf-adapter-bofip`, `fr_search_bofip`, `fr_get_bofip` (ADR-0028, ADR-0029) ; texte lu dans le champ HTML (ADR-0030) ; recherche en mots exacts (ADR-0031) ; articles cités par une publication lue (ADR-0032) | 1.3.0, puis 1.3.1, puis 1.3.2, puis 1.4.0 | G (portail ouvert, sans compte) ; P pour le rejeu de T-MB-44 | Q28 à Q37 décidées | **V-222** et **V-225** (levées), **V-223** et **V-228** (levées avec réserve) | 45 |
 | MS Service-Public | fiches pratiques de Service-Public.gouv.fr (DILA) : port `PublicGuidance`, `lf-adapter-service-public`, `fr_search_service_public`, `fr_get_service_public` (ADR-0033) | 1.5.0 | G (serveur ouvert de la DILA, sans compte) ; P pour un rejeu éventuel (T-MS-44) | Q38 à Q40 décidées (Q38 révisée le 2026-11-24) | **V-229**, **V-230**, **V-232** | 32 |
-| MJ Judilibre | jurisprudence judiciaire en open data de la Cour de cassation : port `JudicialOpenData`, `PisteJudilibre` dans `lf-adapter-piste`, `fr_search_judilibre`, `fr_get_judilibre` (ADR-0035) | 1.6.0 (proposée) | P (application PISTE du propriétaire abonnée à Judilibre, faite le 2026-11-27 en production ; production seulement avec son accord, AM-88) | Q42 à Q45 décidées (A, 2026-11-27) | **V-241**, **V-242** | 25 |
+| MJ Judilibre | jurisprudence judiciaire en open data de la Cour de cassation : port `JudicialOpenData`, `PisteJudilibre` dans `lf-adapter-piste`, `fr_search_judilibre`, `fr_get_judilibre` (ADR-0035) | 1.6.0 | P (application PISTE du propriétaire abonnée à Judilibre, faite le 2026-11-27 en production ; production seulement avec son accord, AM-88) | Q42 à Q45 décidées (A, 2026-11-27) | **V-241**, **V-242** | 25 |
 
 Versions : SemVer de la surface d'outils de 05 §9.5 (avant 1.0, une rupture ou un ajout fait passer de `0.x` à `0.(x+1).0`). M8 étant optionnel, M9 peut suivre directement v0.3.0. Hors de cette feuille de route : fonds JUFI (après v1.0, V-184), canaux supplémentaires (MSI, Homebrew, winget… après v0.1.0, 09 §3.16.3).
 
@@ -1500,11 +1500,11 @@ Vague 2 — adapter.
   - Aucun mot de la recherche dans un message.
 
   Où : `crates/lf-adapter-piste/src/` · Livrable : classement des erreurs · Vérification : `forbidden_is_remembered_ten_minutes`, `blocked_423_is_not_retried`, `errors_never_echo_the_query` · Spéc. : ADR-0035 décision 9 · Taille : S · Après : T-MJ-21
-- [ ] T-MJ-23 — **Test en direct.**
+- [x] T-MJ-23 — **Test en direct.**
   - Une recherche et une lecture, en dehors de la CI, lancées par le propriétaire en production.
   - Éventuellement dans `live.yml`, en bac à sable, si le propriétaire abonne aussi son application de bac à sable.
 
-  Où : `crates/lf-adapter-piste/tests/` · Livrable : test ignoré par défaut · Vérification : passage manuel vert · Spéc. : ADR-0035 · Taille : S · Prérequis : P · Après : T-MJ-22 · *Test écrit (`live_judilibre_search_then_read`, ignoré par défaut, hors de `live.yml`) ; passage manuel en production par le propriétaire à faire.*
+  Où : `crates/lf-adapter-piste/tests/` · Livrable : test ignoré par défaut · Vérification : passage manuel vert · Spéc. : ADR-0035 · Taille : S · Prérequis : P · Après : T-MJ-22 · *Test écrit (`live_judilibre_search_then_read`, ignoré par défaut, hors de `live.yml`) ; passage manuel en production vert le 2026-11-28, lancé par le propriétaire (un jeton, une recherche, une lecture ; 1,17 s).*
 
 Vague 3 — surface MCP et composition.
 
@@ -1548,16 +1548,16 @@ Vague 4 — documentation, revues, clôture.
   - Avec l'accord du propriétaire (AM-88).
 
   Où : hors dépôt, puis 09 §2.20 · Livrable : mesure · Vérification : critère fixé d'avance · Spéc. : ADR-0035 « À surveiller » · Taille : S · Prérequis : P · Après : T-MJ-43
-- [ ] T-MJ-45 — **PR de code unique**, puis PR de version (1.6.0 proposée) après sa fusion. L'étiquette est posée par le propriétaire.\
+- [x] T-MJ-45 — **PR de code unique**, puis PR de version (1.6.0 proposée) après sa fusion. L'étiquette est posée par le propriétaire. *Faite le 2026-11-28 : PR de code #117, CI verte (28 contrôles réussis, dont la mutation du diff en quatre tranches), fusionnée le même jour ; PR de version 1.6.0 ensuite.*\
   Où : GitHub · Livrable : PR · Vérification : CI verte · Spéc. : 06 §13 · Taille : S · Après : T-MJ-43
 
 **Critères d'acceptation.**
 
-- [ ] Les deux outils répondent sur les fixtures et en production (T-MJ-23, passage manuel).
+- [x] Les deux outils répondent sur les fixtures et en production (T-MJ-23, passage manuel vert le 2026-11-28).
 - [ ] G0 à G12 tenues, chacune avec sa preuve.
 - [ ] V-241 et V-242 levées ; V-236, V-239 et V-240 consignées (09 §2.24).
-- [ ] `make ci` vert, couverture 100 %, 0 mutant survivant ; audit de sécurité fait (T-MJ-41).
-- [ ] README, `PRIVACY.md` et `SECURITY.md` à jour ; rubrique « Tool surface » du CHANGELOG.
+- [x] `make ci` vert, couverture 100 %, 0 mutant survivant ; audit de sécurité fait (T-MJ-41, T-MJ-42, T-MJ-43 ; mutation du diff verte dans la CI de la PR #117).
+- [x] README, `PRIVACY.md` et `SECURITY.md` à jour ; rubrique « Tool surface » du CHANGELOG.
 
 **Vérifications rattachées.**
 
@@ -1675,7 +1675,7 @@ La PR de clôture (« close: Mx ») contient :
 | Distribution | **configurée, jamais exercée en release** (dist, MCPB, OCI, `server.json`, portes de release présents ; état en CI non relevé dans ce lot) ; signature non faite (Q5) | 3 / 16 (T-MD-01, -03, -04 ; T-MD-16 ajoutée par la revue de sécurité F4) | compris dans la recette v0.1.0 : V-197, V-204 non levées | #27 | — |
 | MB (BOFiP) | articles cités : ADR-0032 et plan fusionnés le 2026-11-16 (PR #94), code fusionné le 2026-11-17 (PR #95, T-MB-67 à T-MB-73), PR de version 1.4.0 ensuite, étiquette à poser par le propriétaire ; recherche en mots exacts : ADR-0031 et plan fusionnés le 2026-11-16 (PR #90), code fusionné le même jour (PR #91, T-MB-59 à T-MB-66), 1.3.2 publiée le 2026-11-16 ; avant : code écrit sur `feat/bofip` le 2026-11-15 (vagues 0 à 4) ; rejeu des 13 questions fait (T-MB-44 : 30,9 puis 31,2 / 40) ; PR de code #85 fusionnée le 2026-11-15 (T-MB-45) ; PR de version 1.3.0 #86 fusionnée le même jour ; 1.3.0 publiée le 2026-11-15 (étiquette posée par le propriétaire) ; suite : texte lu dans le champ HTML (ADR-0030 et plan : PR #87 fusionnée le 2026-11-15 ; T-MB-51 à T-MB-57 : code écrit le 2026-11-15 sur `fix/bofip-html`, PR #88) ; PR de version 1.3.1 #89 fusionnée le 2026-11-15, 1.3.1 publiée le 2026-11-16 | 0 / 45 (cases à cocher par le propriétaire) | 3 / 3 : V-222 et V-225 levées, V-223 levée avec réserve | — | — |
 | MS (Service-Public) | livré : ADR-0033 et plan fusionnés le 2026-11-24 (PR #103), code fusionné le 2026-11-25 (PR #105, T-MS-02 à T-MS-46), PR de version 1.5.0 ensuite, étiquette à poser par le propriétaire ; Q38 à Q40 = A le 2026-11-23, Q38 = B le 2026-11-24 après la mesure de T-MS-03 (13 sur 20), Q41 le 2026-11-24 | 31 / 32 (T-MS-44, facultative, non faite) | V-229 confirmée (18 sur 20) ; V-230 et V-232 consignées avec leurs réserves | #105 | 2026-11-25 |
-| MJ (Judilibre) | en cours : ADR-0035 et plan fusionnés le 2026-11-27 (PR #116) ; Q42 à Q45 = A le 2026-11-27 ; sondes en production faites le même jour par le propriétaire ; code écrit sur `feat/judilibre` (vagues 1 à 3, documentation, revues), mutation et `make ci` final faits (T-MJ-42, T-MJ-43 ; un test chronométré préexistant instable, à corriger à part) ; PR de code à ouvrir | 20 / 25 | 0 / 2 : V-241 et V-242 ouvertes | — | — |
+| MJ (Judilibre) | livré : ADR-0035 et plan fusionnés le 2026-11-27 (PR #116), code fusionné le 2026-11-28 (PR #117), test en direct en production vert le même jour (T-MJ-23, lancé par le propriétaire), PR de version 1.6.0 ensuite, étiquette à poser par le propriétaire ; Q42 à Q45 = A le 2026-11-27 ; sondes en production faites le même jour par le propriétaire ; un test chronométré préexistant instable, à corriger à part | 22 / 25 (restent T-MJ-03, T-MJ-04 et T-MJ-44) | 0 / 2 : V-241 et V-242 ouvertes | #117 | 2026-11-28 |
 
 Statuts : `à faire`, `en cours`, `bloqué (prérequis)` avec le prérequis manquant, `terminé`. « Terminé » pour M0 et M1 vaut au sens du livré (plan 1) ; la colonne « Tâches cochées » y décompte les statuts des tâches (§2.0, §2.1) et les reliquats sont suivis par 00 §11.1. Les onze vérifications bloquantes de la recette v0.1.0 sont V-46, V-59, V-103, V-139, V-140, V-142, V-143, V-144, V-173 (si certificat), V-197 et V-204 (09 §2.18).
 

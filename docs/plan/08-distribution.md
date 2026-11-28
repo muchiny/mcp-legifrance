@@ -103,7 +103,8 @@ La recherche 06 §6 demande de documenter la liste exhaustive des hôtes contact
 | Binaire avec surcharges `LF_PISTE_OAUTH_URL` / `LF_PISTE_BASE_URL` | l'hôte fourni : `https` obligatoire (`http` admis vers 127.0.0.1, ::1 et localhost seulement) ; hors des quatre hôtes officiels, avertissement `CustomHost` au démarrage, dans `check-config` et en lacune de `fr_coverage` ; un hôte officiel de l'autre environnement est le problème `EnvMismatch` (00 §1, 02 §8.2) | idem |
 | Binaire, source du BOFiP active (jalon MB ; défaut, coupée par `LF_BOFIP=off`, par une valeur invalide ou par `LF_DILA_DIR`) | `data.economie.gouv.fr` : adresse fixée dans le code, `https` seul, aucune redirection suivie, aucune variable de surcharge (ADR-0028 décision 4) ; `bofip.impots.gouv.fr` n'est jamais appelé, il ne figure que dans `source_url` | à chaque appel de `fr_search_bofip` ou de `fr_get_bofip`, jamais au démarrage ni par `check-config` |
 | Binaire, source Service-Public active (jalon MS, livré en 1.5.0 ; défaut, coupée par `LF_SERVICE_PUBLIC=off`, par une valeur invalide ou par `LF_DILA_DIR`) | `lecomarquage.service-public.gouv.fr` : deux adresses fixées dans le code (`/vdd/3.5/part/zip/vosdroits-latest.zip` et `/vdd/3.5/pro/zip/vosdroits-latest.zip`), `https` seul, aucune redirection suivie, aucune variable de surcharge (ADR-0033 décisions 4 et 10) ; la requête ne porte ni mot cherché ni numéro de fiche ; `www.service-public.gouv.fr` et `entreprendre.service-public.gouv.fr` ne sont jamais appelés, ils ne figurent que dans `source_url` | au premier appel de `fr_search_service_public` ou de `fr_get_service_public` (une archive par public, environ 24 Mo pour Particuliers), puis au plus une revalidation par jour ; jamais au démarrage ni par `check-config` |
-| Binaire, M9 (`dila`) | aucun (les sources du BOFiP et de Service-Public sont alors coupées d'office, sauf `LF_BOFIP=on` et `LF_SERVICE_PUBLIC=on`) : le binaire lit les dumps dans un répertoire local (proposition par défaut de 02 §3.9 ; `reqwest` est confiné à `lf-adapter-piste`, règle R6 et ban `wrappers` de `deny.toml`) | — |
+| Binaire, source de Judilibre active (jalon MJ, livré en 1.6.0 ; défaut, coupée par `LF_JUDILIBRE=off`, par une valeur invalide ou par `LF_DILA_DIR`) | les hôtes PISTE ci-dessus (ou ceux des surcharges), chemins `/cassation/judilibre/v1.0/search` et `/cassation/judilibre/v1.0/decision` seulement, avec la même application, le même jeton et le même débit que Légifrance (ADR-0035) | à chaque appel de `fr_search_judilibre` ou de `fr_get_judilibre`, jamais au démarrage |
+| Binaire, M9 (`dila`) | aucun (les sources du BOFiP, de Service-Public et de Judilibre sont alors coupées d'office, sauf `LF_BOFIP=on`, `LF_SERVICE_PUBLIC=on` et `LF_JUDILIBRE=on`) : le binaire lit les dumps dans un répertoire local (proposition par défaut de 02 §3.9 ; `reqwest` est confiné à `lf-adapter-piste`, règle R6 et ban `wrappers` de `deny.toml`) | — |
 | Script de téléchargement des dumps (M9, hors binaire, 02 §3.9) | `echanges.dila.gouv.fr` | lancé explicitement par l'utilisateur |
 | Installeurs sh/ps1 | `github.com` et l'hôte de redirection des assets de release | à l'installation |
 | `cargo install --git` | `github.com` (clone du dépôt au tag), `index.crates.io`, `static.crates.io` (dépendances) | à l'installation |
@@ -462,6 +463,7 @@ mcp-legifrance-0.1.0.mcpb          # ZIP (mcpb pack), construit sous Linux
       "args": ["serve"],
       "env": {
         "LF_BOFIP": "${user_config.bofip}",
+        "LF_JUDILIBRE": "${user_config.judilibre}",
         "LF_PISTE_CLIENT_ID": "${user_config.piste_client_id}",
         "LF_PISTE_CLIENT_SECRET": "${user_config.piste_client_secret}",
         "LF_PISTE_ENV": "${user_config.piste_env}",
@@ -476,6 +478,11 @@ mcp-legifrance-0.1.0.mcpb          # ZIP (mcpb pack), construit sous Linux
     "bofip": {
       "type": "string", "title": "Tax doctrine source (BOFiP)",
       "description": "on (default) or off. The two tax doctrine tools read the open data portal of the French tax administration (data.economie.gouv.fr) and send it your search words. off turns that source off; any other value turns it off too.",
+      "required": false, "default": "on"
+    },
+    "judilibre": {
+      "type": "string", "title": "Court decisions source (Judilibre)",
+      "description": "on (default) or off. The two court decision tools search and read Judilibre, the open data of the Cour de cassation, through the same PISTE application and credentials, and send it your search words. Your PISTE application must also subscribe to the Judilibre API. off turns that source off; any other value turns it off too.",
       "required": false, "default": "on"
     },
     "piste_client_id": {
@@ -1048,7 +1055,7 @@ claude mcp add-json legifrance '{"type":"stdio","command":"/home/alice/.mcp-legi
 
 ### 8.3 Claude Desktop
 
-- **MCPB, voie recommandée** : double-cliquer sur `mcp-legifrance-<version>.mcpb` ou le glisser dans les réglages d'extensions. Claude Desktop demande les `user_config` du §4.3 : les deux identifiants, obligatoires, puis l'environnement, la source de doctrine fiscale et la source des fiches pratiques de Service-Public, facultatifs (trois réglages jusqu'à la 1.2.0, quatre jusqu'à la 1.4.1, cinq depuis la 1.5.0). Ce que Claude Desktop transmet au modèle reste **NON VÉRIFIÉ** [V-51 · desktop-structured-content] (05 §10.2).
+- **MCPB, voie recommandée** : double-cliquer sur `mcp-legifrance-<version>.mcpb` ou le glisser dans les réglages d'extensions. Claude Desktop demande les `user_config` du §4.3 : les deux identifiants, obligatoires, puis l'environnement, la source de doctrine fiscale, la source des fiches pratiques de Service-Public et la source des décisions de justice (Judilibre), facultatifs (trois réglages jusqu'à la 1.2.0, quatre jusqu'à la 1.4.1, cinq jusqu'à la 1.5.0, six depuis la 1.6.0). Ce que Claude Desktop transmet au modèle reste **NON VÉRIFIÉ** [V-51 · desktop-structured-content] (05 §10.2).
 - **Configuration manuelle** (`claude_desktop_config.json` ; emplacement habituel `~/Library/Application Support/Claude/` sous macOS et `%APPDATA%\Claude\` sous Windows, **NON VÉRIFIÉ** [V-212 · syntaxe-config-clients]) :
 
 ```json
