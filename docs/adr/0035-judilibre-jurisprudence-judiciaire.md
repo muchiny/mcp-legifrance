@@ -1,8 +1,8 @@
 # ADR-0035 — Judilibre : la jurisprudence judiciaire en open data derrière un port distinct, lue par l'adapter PISTE avec le même jeton et le même débit, sans rien qui permette d'étudier un juge
 
-- **Statut** : **Proposé** (2026-11-27), accepté à la fusion de sa PR. Choix du propriétaire du 2026-11-27 : « Ok pour tout ce que tu recommandes » (Q42 à Q45 = A).
+- **Statut** : **Accepté** (2026-11-27, fusion de la PR #116). Code fusionné le 2026-11-28 (PR #117). Choix du propriétaire du 2026-11-27 : « Ok pour tout ce que tu recommandes » (Q42 à Q45 = A).
 - **Date** : 2026-11-27
-- **Jalons concernés** : MJ (Judilibre), après la 1.5.0. Deux outils de plus font une version mineure : la **1.6.0**, proposée ici ; `lock-descriptors --compare v1.5.0` la confirmera.
+- **Jalons concernés** : MJ (Judilibre), après la 1.5.0. Deux outils de plus font une version mineure : la **1.6.0**, proposée ici ; `lock-descriptors --compare v1.5.0` la confirme le 2026-11-28.
 - **Questions liées** : Q42 (forme), Q43 (place du code), Q44 (activation) et Q45 (citations de cours d'appel). Réponse **A** pour chacune, le 2026-11-27.
 - **Amendements** : AM-103 (00 §14).
   - Applique la décision 7 d'[ADR-0004](0004-piste-puis-dila.md) (« derrière le même port ou un port distinct justifié ») : le port est distinct, et le code va dans l'adapter PISTE, qui sert déjà ce portail.
