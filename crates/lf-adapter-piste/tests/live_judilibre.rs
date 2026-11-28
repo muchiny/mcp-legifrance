@@ -95,8 +95,14 @@ mod live {
         assert!(page.total >= 1 && !page.hits.is_empty(), "total {}", page.total);
         let first = &page.hits[0];
         assert!(!first.mention.court.is_empty() && !first.mention.date.is_empty());
+        // V-241 : chaque siège arrive en clair, jamais en code entre parenthèses.
+        for hit in &page.hits {
+            let court = &hit.mention.court;
+            assert!(!court.contains(" ("), "{court}");
+        }
         let doc = judilibre.get(&first.id).await.unwrap();
         assert_eq!(doc.id, first.id);
+        assert_eq!(doc.mention.court, first.mention.court);
         assert_ne!(doc.text, "");
     }
 }

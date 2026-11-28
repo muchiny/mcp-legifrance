@@ -1590,7 +1590,7 @@ Search Judilibre, the open data of French judicial court decisions published by 
 
 Ordre de validation : `query`, `match`, `courts`, `part`, dates, `sort`, `page_size`, `page`. Tout refus a lieu avant le réseau.
 
-**Requête amont.** `GET {hôte API}/cassation/judilibre/v1.0/search`, avec ces seuls paramètres, plus `resolve_references=true` si V-241 le confirme (non envoyé à la livraison : V-241 reste ouverte). Jeton `Bearer` du gestionnaire PISTE ; limiteur et sémaphore partagés avec Légifrance (00 §8).
+**Requête amont.** `GET {hôte API}/cassation/judilibre/v1.0/search`, avec ces seuls paramètres, plus `resolve_references=true` (V-241, levée le 2026-11-28 ; non envoyé jusqu'à la 1.6.0) : la juridiction et le siège arrivent en clair (« Tribunal de commerce de Toulouse »), et la table du domaine ne sert plus qu'à une réponse codée. Un siège n'est gardé tel quel que s'il commence par l'intitulé de sa juridiction (ou par « Tribunal des activités économiques » pour un tribunal de commerce) ; sinon, il suit cet intitulé entre parenthèses (« Tribunal judiciaire (tj75056) »). Jeton `Bearer` du gestionnaire PISTE ; limiteur et sémaphore partagés avec Légifrance (00 §8).
 
 **Sortie** (`CaseLawSearchView`) :
 - `total`, `page`, `hits` ;
@@ -1635,7 +1635,7 @@ Read one decision from Judilibre (Cour de cassation open data) by its id from fr
 
 Ordre de validation : `id`, `part`, paramètres communs. Tout refus a lieu avant le réseau.
 
-**Requête amont.** `GET {hôte API}/cassation/judilibre/v1.0/decision?id={id}`, plus `resolve_references=true` si V-241 le confirme (non envoyé à la livraison).
+**Requête amont.** `GET {hôte API}/cassation/judilibre/v1.0/decision?id={id}&resolve_references=true` (V-241, levée le 2026-11-28 ; paramètre non envoyé jusqu'à la 1.6.0).
 
 **Comportement.**
 

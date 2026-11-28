@@ -813,7 +813,7 @@ mod tests {
     }
 
     /// Nombre de fixtures de Judilibre versionnées (fichiers `.json`).
-    const JUDILIBRE_FIXTURES: usize = 7;
+    const JUDILIBRE_FIXTURES: usize = 10;
 
     /// Problèmes de l'arbre `root` des fixtures de Judilibre : fichier ni `.json` ni `README.md`,
     /// fixture que le `README.md` ne nomme pas, qui n'est pas du JSON ou qui ressemble à un

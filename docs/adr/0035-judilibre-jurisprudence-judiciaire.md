@@ -55,7 +55,7 @@
      - `query`, `operator`, `field`, `date_start`, `date_end`, `sort`, `order` ;
      - `jurisdiction`, **toujours explicite**, car vide il ne vise que la Cour de cassation ;
      - `page`, égal à la page de l'outil moins 1, et `page_size` ;
-     - `resolve_references=true`, si V-241 le confirme.
+     - `resolve_references=true`, sur les deux chemins : V-241 l'a confirmé le 2026-11-28 (sondes du propriétaire, quatre requêtes).
    - Jamais appelés : `/stats`, `/export`, `/scan`, `/transactionalhistory`, `/taxonomy`, `/healthcheck`.
    - Jamais envoyés : `chamber`, `formation`, `location`, `theme`, `withFileOfType`.
 4. **`fr_search_judilibre`.**
@@ -97,7 +97,7 @@
      - `chamber`, et `formation` pour la Cour de cassation ;
      - `date`, telle que publiée.
 
-     Les intitulés viennent de `resolve_references` (V-241). À défaut, une table du domaine couvre `cc` et les 36 cours d'appel ; ailleurs, le code brut.
+     Les intitulés viennent de `resolve_references` (V-241, levée le 2026-11-28) : la juridiction arrive alors en clair (« Tribunal de commerce ») et se lit par son code ou par cet intitulé ; le siège aussi (« Tribunal de commerce de Toulouse »), gardé tel quel s'il commence par l'intitulé de sa juridiction (ou par « Tribunal des activités économiques » pour un tribunal de commerce), sinon placé entre parenthèses après cet intitulé, pour que la mention nomme toujours la juridiction reconnue. Pour une réponse codée, une table du domaine couvre `cc` et les 36 cours d'appel ; ailleurs, le code brut.
    - **Par réponse** :
      - `attribution` : « Source : Cour de cassation, base Open Data des décisions judiciaires (Judilibre) — Licence Ouverte 2.0 » ;
      - `updated` (`update_date`) pour une lecture, `consulted_on` (jour de l'appel, Europe/Paris) pour une recherche ;
@@ -175,8 +175,8 @@
   - `lf-adapter-piste` grossit ;
   - 8 caractères de marge sous le plafond des instructions ;
   - recherche lente quand elle est limitée aux motifs.
-- **À surveiller** (09 §2.24) : **NON VÉRIFIÉ** [V-236 · judilibre-quotas], [V-239 · judilibre-adresse-publique], [V-240 · judilibre-apport], [V-241 · judilibre-intitules], [V-242 · judilibre-mentions].
-  - Levées par les sondes : V-182, V-183, V-237 et V-238.
+- **À surveiller** (09 §2.24) : **NON VÉRIFIÉ** [V-236 · judilibre-quotas], [V-239 · judilibre-adresse-publique], [V-240 · judilibre-apport], [V-242 · judilibre-mentions].
+  - Levées par les sondes : V-182, V-183, V-237 et V-238 ; V-241 le 2026-11-28 (les rapprochements gardent des identifiants Judilibre, et `cph` n'a pas été vu).
   - V-181 est levée par la lecture des CGU.
 - **Tests qui la gardent** :
   - faux serveur : deux chemins et une liste fermée de paramètres, `jurisdiction` toujours présent, aucune requête dans les 10 minutes qui suivent un 403 ;

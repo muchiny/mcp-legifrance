@@ -242,6 +242,7 @@ mod tests {
         assert_eq!(courts, ["cc", "ca", "tj", "tcom", "cph"]);
         assert!(pairs.contains(&("query".to_owned(), WORDS.to_owned())));
         assert!(pairs.contains(&("page".to_owned(), "1".to_owned())));
+        assert!(pairs.contains(&("resolve_references".to_owned(), "true".to_owned())));
         // Aucune autre route : ni Légifrance, ni une autre route de Judilibre.
         let all = rig.server.received_requests().await.unwrap();
         let routes: BTreeSet<&str> = all.iter().map(|request| request.url.path()).collect();
@@ -249,7 +250,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_decision_is_read_by_its_id_alone() {
+    async fn a_decision_is_read_by_its_id_in_plain_words() {
         let rig = Rig::new().await;
         token_mock(&rig.server, "tok-1", 1).await;
         judilibre_mock(&rig.server, DECISION, json_reply(200, &fixture("decision-cc.json")), 1)
@@ -259,9 +260,15 @@ mod tests {
         assert!(doc.text.starts_with("CIV. 1"));
         let requests = received(&rig.server, DECISION).await;
         assert_eq!(requests.len(), 1);
-        assert_eq!(names(&requests[0]), BTreeSet::from(["id".to_owned()]));
+        assert_eq!(
+            names(&requests[0]),
+            BTreeSet::from(["id".to_owned(), "resolve_references".to_owned()])
+        );
         assert!(names(&requests[0]).iter().all(|name| DECISION_PARAMS.contains(&name.as_str())));
-        assert_eq!(requests[0].url.query(), Some("id=5fca624b7eeb384a40cafb85"));
+        assert_eq!(
+            requests[0].url.query(),
+            Some("id=5fca624b7eeb384a40cafb85&resolve_references=true")
+        );
     }
 
     #[tokio::test]

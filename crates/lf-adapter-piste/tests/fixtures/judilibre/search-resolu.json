@@ -1,0 +1,76 @@
+{
+ "page": 0,
+ "page_size": 30,
+ "total": 390423,
+ "took": 223,
+ "max_score": 1.0723488,
+ "relaxed": false,
+ "results": [
+  {
+   "score": 1,
+   "highlights": {
+    "text": [
+     "<em>Contrat</em> repris par le cessionnaire",
+     "<em>Contrat</em> non repris"
+    ]
+   },
+   "id": "69c277f2cdc6046d47c312a5",
+   "jurisdiction": "Tribunal de commerce",
+   "chamber": "DECISIONS RENDUES PAR MISE A DISPOSITION",
+   "number": "2025019260",
+   "numbers": [
+    "2025019260"
+   ],
+   "location": "Tribunal de commerce de Toulouse",
+   "publication": [],
+   "decision_date": "2025-10-27",
+   "files": [],
+   "titlesAndSummaries": [],
+   "particularInterest": false
+  },
+  {
+   "score": 0.9964150656950423,
+   "highlights": {
+    "text": [
+     "résiliation du <em>contrat</em> de crédit-bail conclu en 2021"
+    ]
+   },
+   "id": "69d3f968cdc6046d4753dc01",
+   "jurisdiction": "Tribunal de commerce",
+   "chamber": "Référé mardi salle 3",
+   "number": "2025027761",
+   "numbers": [
+    "2025027761"
+   ],
+   "location": "Tribunal des activités économiques de Paris",
+   "publication": [],
+   "decision_date": "2025-06-17",
+   "files": [],
+   "titlesAndSummaries": [],
+   "particularInterest": false
+  },
+  {
+   "score": 0.99802051347472,
+   "highlights": {
+    "text": [
+     "et de tout autre <em>contrat</em> d’assurance-vie souscrit par la défunte"
+    ]
+   },
+   "id": "699e2273cdc6046d479ecea3",
+   "jurisdiction": "Tribunal judiciaire",
+   "chamber": "Référé",
+   "number": "25/00808",
+   "numbers": [
+    "25/00808"
+   ],
+   "location": "Tribunal judiciaire de Nîmes",
+   "publication": [],
+   "decision_date": "2026-02-18",
+   "solution": "Désigne un expert ou un autre technicien",
+   "type": "Autre",
+   "files": [],
+   "titlesAndSummaries": [],
+   "particularInterest": false
+  }
+ ]
+}
